@@ -7,3 +7,6 @@ auth:
   jwt_secret: "dev-secret-change-me"
   access_minutes: 120
   refresh_hours: 168
+
+# 行情数据通过WebSocket实时获取（上海黄金交易所）
+# 无需额外配置API

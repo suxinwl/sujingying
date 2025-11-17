@@ -39,11 +39,8 @@ type RiskScheduler struct {
  * @param intervalSeconds int - 检查间隔（秒）
  * @return *RiskScheduler
  */
-func NewRiskScheduler(ctx *appctx.AppContext, intervalSeconds int) *RiskScheduler {
-	quoteService := service.NewQuoteService()
-	
-	// 启动价格自动更新器（每30秒更新一次）
-	quoteService.StartPriceUpdater(30 * time.Second)
+func NewRiskScheduler(ctx *appctx.AppContext, intervalSeconds int, quoteHub service.QuoteHubInterface) *RiskScheduler {
+	quoteService := service.NewQuoteService(quoteHub)
 	
 	return &RiskScheduler{
 		ctx:          ctx,

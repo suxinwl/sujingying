@@ -15,6 +15,7 @@ package websocket
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -34,6 +35,11 @@ type QuoteProxyHub struct {
 	upstreamConn    *websocket.Conn   // 上游数据源连接
 	mu              sync.RWMutex      // 读写锁
 	isUpstreamAlive bool              // 上游连接状态
+	
+	// 最新价格缓存（用于风控系统）
+	latestPrice     float64           // 最新Au9999价格（元/克）
+	lastUpdate      time.Time         // 最后更新时间
+	priceMutex      sync.RWMutex      // 价格锁
 }
 
 /**
@@ -231,9 +237,75 @@ func (h *QuoteProxyHub) readUpstream() {
 			break
 		}
 		
+		// 解析消息并提取Au9999价格
+		h.extractPrice(message)
+		
 		// 广播到所有客户端
 		h.broadcast <- message
 	}
+}
+
+/**
+ * extractPrice 从WebSocket消息中提取Au9999价格
+ * 
+ * 消息格式示例:
+ * {
+ *   "data": {
+ *     "au9999": {
+ *       "currentPrice": "500.12",
+ *       ...
+ *     }
+ *   }
+ * }
+ * 
+ * @param message []byte - WebSocket消息
+ * @return void
+ */
+func (h *QuoteProxyHub) extractPrice(message []byte) {
+	var data map[string]interface{}
+	if err := json.Unmarshal(message, &data); err != nil {
+		return
+	}
+	
+	// 尝试提取Au9999价格
+	// 根据实际数据格式调整解析逻辑
+	if dataObj, ok := data["data"].(map[string]interface{}); ok {
+		if au9999, ok := dataObj["au9999"].(map[string]interface{}); ok {
+			if priceStr, ok := au9999["currentPrice"].(string); ok {
+				var price float64
+				if _, err := fmt.Sscanf(priceStr, "%f", &price); err == nil && price > 0 {
+					h.priceMutex.Lock()
+					h.latestPrice = price
+					h.lastUpdate = time.Now()
+					h.priceMutex.Unlock()
+					log.Printf("[QuoteProxy] 价格更新: Au9999 = %.2f 元/克", price)
+				}
+			} else if priceFloat, ok := au9999["currentPrice"].(float64); ok && priceFloat > 0 {
+				h.priceMutex.Lock()
+				h.latestPrice = priceFloat
+				h.lastUpdate = time.Now()
+				h.priceMutex.Unlock()
+				log.Printf("[QuoteProxy] 价格更新: Au9999 = %.2f 元/克", priceFloat)
+			}
+		}
+	}
+}
+
+/**
+ * GetLatestPrice 获取最新Au9999价格
+ * 
+ * @return (float64, time.Time, bool) - 价格、更新时间、是否有效
+ */
+func (h *QuoteProxyHub) GetLatestPrice() (float64, time.Time, bool) {
+	h.priceMutex.RLock()
+	defer h.priceMutex.RUnlock()
+	
+	// 如果超过5分钟没更新，认为数据无效
+	if time.Since(h.lastUpdate) > 5*time.Minute {
+		return 0, h.lastUpdate, false
+	}
+	
+	return h.latestPrice, h.lastUpdate, h.latestPrice > 0
 }
 
 /**
