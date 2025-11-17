@@ -2,3 +2,8 @@ database:
   type: sqlite
   sqlite:
     path: ./data/sujinying.db
+
+auth:
+  jwt_secret: "dev-secret-change-me"
+  access_minutes: 120
+  refresh_hours: 168
