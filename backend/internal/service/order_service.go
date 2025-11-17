@@ -16,6 +16,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"suxin/internal/appctx"
@@ -265,6 +266,14 @@ func (s *OrderService) SettleOrder(userID uint, orderID string, settlePrice floa
 	if err := tx.Commit().Error; err != nil {
 		return nil, errors.New("事务提交失败")
 	}
+	
+	// 10. 异步计算销售提成
+	go func() {
+		salesSvc := NewSalesService(s.ctx)
+		if err := salesSvc.ProcessOrderCommission(order.ID); err != nil {
+			log.Printf("[Order] 计算提成失败: %v", err)
+		}
+	}()
 	
 	return order, nil
 }

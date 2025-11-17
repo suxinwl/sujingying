@@ -53,3 +53,13 @@ func (r *UserRepository) UpdatePayPassword(userID uint, hashed string, has bool)
 	}
 	return nil
 }
+
+func (r *UserRepository) FindBySalesID(salesID uint) ([]*model.User, error) {
+	var users []*model.User
+	err := r.db.Where("sales_id = ? AND role = ?", salesID, "customer").Find(&users).Error
+	return users, err
+}
+
+func (r *UserRepository) UpdateSalesID(userID, salesID uint) error {
+	return r.db.Model(&model.User{}).Where("id = ?", userID).Update("sales_id", salesID).Error
+}
