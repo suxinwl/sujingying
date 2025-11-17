@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"os"
 	"log"
+	"os/signal"
+	"syscall"
 
 	"github.com/gin-gonic/gin"
 
@@ -12,6 +14,7 @@ import (
 	"suxin/internal/appctx"
 	"suxin/internal/api/v1"
 	"suxin/internal/middleware"
+	"suxin/internal/scheduler"
 )
 
 func main() {
@@ -33,6 +36,11 @@ func main() {
 
 	app := appctx.New(db, cfg)
 
+	// 启动风控调度器（60秒间隔）
+	riskScheduler := scheduler.NewRiskScheduler(app, 60)
+	riskScheduler.Start()
+	log.Println("[Main] ✅ 风控调度器已启动")
+
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
@@ -43,15 +51,33 @@ func main() {
 	// 受保护路由（需要JWT认证）
 	protected := api.Group("", middleware.AuthRequired(app))
 	v1.RegisterOrderRoutes(protected, app)
+	v1.RegisterRiskRoutes(protected, app)
 
 	// 健康检查
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	// 启动HTTP服务器
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-	_ = r.Run(":" + port)
+
+	// 在独立协程中启动服务器
+	go func() {
+		log.Printf("[Main] 🚀 HTTP服务器启动在端口: %s", port)
+		if err := r.Run(":" + port); err != nil {
+			log.Fatalf("[Main] 启动服务器失败: %v", err)
+		}
+	}()
+
+	// 优雅退出：监听系统信号
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("[Main] 🛑 收到退出信号，正在关闭服务...")
+	riskScheduler.Stop()
+	log.Println("[Main] ✅ 服务已关闭")
 }
