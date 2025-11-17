@@ -11,6 +11,7 @@ import (
 	"suxin/internal/pkg/database"
 	"suxin/internal/appctx"
 	"suxin/internal/api/v1"
+	"suxin/internal/middleware"
 )
 
 func main() {
@@ -35,9 +36,15 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
+	// 公开路由（无需认证）
 	api := r.Group("/api/v1")
 	v1.RegisterAuthRoutes(api, app)
 
+	// 受保护路由（需要JWT认证）
+	protected := api.Group("", middleware.AuthRequired(app))
+	v1.RegisterOrderRoutes(protected, app)
+
+	// 健康检查
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
