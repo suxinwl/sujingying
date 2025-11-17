@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"suxin/internal/appctx"
+	"suxin/internal/repository"
 	"suxin/internal/service"
 )
 
@@ -101,6 +102,127 @@ func RegisterSalesRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		
 		c.JSON(http.StatusOK, gin.H{
 			"rankings": rankings,
+		})
+	})
+	
+	/**
+	 * GET /sales/customers - 获取销售的客户列表
+	 * 
+	 * 查询参数：
+	 * - salesperson_id: 销售人员ID（可选，默认当前用户）
+	 * - limit: 每页数量（默认20）
+	 * - offset: 偏移量（默认0）
+	 * 
+	 * 响应：
+	 * {
+	 *   "customers": [
+	 *     {
+	 *       "id": 1,
+	 *       "phone": "13900000001",
+	 *       "created_at": "2025-11-18",
+	 *       "available_deposit": 50000.00,
+	 *       "used_deposit": 10000.00
+	 *     }
+	 *   ],
+	 *   "total": 50
+	 * }
+	 */
+	rg.GET("/sales/customers", func(c *gin.Context) {
+		// 获取销售人员ID
+		salespersonIDStr := c.Query("salesperson_id")
+		var salespersonID uint
+		if salespersonIDStr != "" {
+			id, _ := strconv.ParseUint(salespersonIDStr, 10, 32)
+			salespersonID = uint(id)
+		} else {
+			salespersonID = c.GetUint("user_id")
+		}
+		
+		// TODO: 验证salespersonID是否是销售人员
+		
+		// 查询客户列表
+		userRepo := repository.NewUserRepository(ctx.DB)
+		customers, err := userRepo.FindBySalesID(salespersonID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// 脱敏处理（隐藏密码）
+		result := make([]map[string]interface{}, 0)
+		for _, customer := range customers {
+			result = append(result, map[string]interface{}{
+				"id":                customer.ID,
+				"phone":             customer.Phone,
+				"created_at":        customer.CreatedAt,
+				"available_deposit": customer.AvailableDeposit,
+				"used_deposit":      customer.UsedDeposit,
+			})
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"customers": result,
+			"total":     len(result),
+		})
+	})
+	
+	/**
+	 * GET /sales/commissions - 获取提成明细
+	 * 
+	 * 查询参数：
+	 * - salesperson_id: 销售人员ID（可选，默认当前用户）
+	 * - limit: 每页数量（默认20）
+	 * - offset: 偏移量（默认0）
+	 * 
+	 * 响应：
+	 * {
+	 *   "commissions": [
+	 *     {
+	 *       "id": 1,
+	 *       "order_id": 123,
+	 *       "customer_id": 456,
+	 *       "weight_g": 100.0,
+	 *       "commission_rate": 0.0001,
+	 *       "points": 0.01,
+	 *       "settled_at": "2025-11-18"
+	 *     }
+	 *   ],
+	 *   "total": 100,
+	 *   "total_points": 50.00
+	 * }
+	 */
+	rg.GET("/sales/commissions", func(c *gin.Context) {
+		// 获取销售人员ID
+		salespersonIDStr := c.Query("salesperson_id")
+		var salespersonID uint
+		if salespersonIDStr != "" {
+			id, _ := strconv.ParseUint(salespersonIDStr, 10, 32)
+			salespersonID = uint(id)
+		} else {
+			salespersonID = c.GetUint("user_id")
+		}
+		
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+		
+		// 查询提成记录
+		commissionRepo := repository.NewCommissionRepository(ctx.DB)
+		commissions, err := commissionRepo.FindBySalespersonID(salespersonID, limit, offset)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		// 计算总积分
+		totalPoints := 0.0
+		for _, comm := range commissions {
+			totalPoints += comm.Points
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"commissions":  commissions,
+			"total":        len(commissions),
+			"total_points": totalPoints,
 		})
 	})
 }

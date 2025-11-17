@@ -49,6 +49,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.Notification{},
 		&model.BankCard{},
 		&model.DepositRequest{},
+		&model.WithdrawRequest{},
 		&model.FundLog{},
 		&model.Salesperson{},
 		&model.CommissionRecord{},

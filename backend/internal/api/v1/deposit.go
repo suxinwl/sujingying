@@ -196,3 +196,122 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		})
 	})
 }
+
+type submitWithdrawReq struct {
+	BankCardID uint    `json:"bank_card_id" binding:"required"`
+	Amount     float64 `json:"amount" binding:"required,gt=0"`
+}
+
+type reviewWithdrawReq struct {
+	Action string `json:"action" binding:"required,oneof=approve reject"`
+	Note   string `json:"note"`
+}
+
+/**
+ * RegisterWithdrawRoutes 注册提现路由
+ * 
+ * 路由列表：
+ * - POST /withdraws              提交提现申请（需JWT）
+ * - GET  /withdraws              查询提现记录（需JWT）
+ * - GET  /withdraws/pending      查询待审核列表（需JWT+管理员）
+ * - POST /withdraws/:id/review   审核提现（需JWT+管理员）
+ * 
+ * @param rg *gin.RouterGroup - 路由组
+ * @param ctx *appctx.AppContext - 应用上下文
+ * @return void
+ */
+func RegisterWithdrawRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
+	withdrawSvc := service.NewWithdrawService(ctx)
+	
+	// POST /withdraws - 提交提现申请
+	rg.POST("/withdraws", func(c *gin.Context) {
+		var req submitWithdrawReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+		
+		userID := c.GetUint("user_id")
+		
+		withdraw, err := withdrawSvc.SubmitWithdraw(userID, req.BankCardID, req.Amount)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"id":            withdraw.ID,
+			"amount":        withdraw.Amount,
+			"fee":           withdraw.Fee,
+			"actual_amount": withdraw.ActualAmount,
+			"status":        withdraw.Status,
+			"created_at":    withdraw.CreatedAt,
+		})
+	})
+	
+	// GET /withdraws - 查询提现记录
+	rg.GET("/withdraws", func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+		
+		withdraws, err := withdrawSvc.GetUserWithdraws(userID, limit, offset)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"withdraws": withdraws,
+			"total":     len(withdraws),
+		})
+	})
+	
+	// GET /withdraws/pending - 查询待审核列表
+	rg.GET("/withdraws/pending", func(c *gin.Context) {
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+		
+		withdraws, err := withdrawSvc.GetPendingWithdraws(limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"withdraws": withdraws,
+			"total":     len(withdraws),
+		})
+	})
+	
+	// POST /withdraws/:id/review - 审核提现
+	rg.POST("/withdraws/:id/review", func(c *gin.Context) {
+		withdrawID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的提现ID"})
+			return
+		}
+		
+		var req reviewWithdrawReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+		
+		reviewerID := c.GetUint("user_id")
+		
+		if req.Action == "approve" {
+			err = withdrawSvc.ApproveWithdraw(uint(withdrawID), reviewerID, req.Note)
+		} else {
+			err = withdrawSvc.RejectWithdraw(uint(withdrawID), reviewerID, req.Note)
+		}
+		
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"message": "审核成功",
+		})
+	})
+}
