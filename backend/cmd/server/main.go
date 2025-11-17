@@ -70,6 +70,7 @@ func main() {
 	v1.RegisterNotificationRoutes(protected, app)
 	v1.RegisterBankCardRoutes(protected, app)
 	v1.RegisterSalesRoutes(protected, app)
+	v1.RegisterDepositRoutes(protected, app)
 
 	// WebSocket行情代理接口
 	r.GET("/ws/quote", func(c *gin.Context) {
