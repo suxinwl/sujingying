@@ -15,6 +15,9 @@ import (
 	"suxin/internal/api/v1"
 	"suxin/internal/middleware"
 	"suxin/internal/scheduler"
+	ws "suxin/internal/websocket"
+	
+	"github.com/gorilla/websocket"
 )
 
 func main() {
@@ -36,10 +39,22 @@ func main() {
 
 	app := appctx.New(db, cfg)
 
+	// 启动WebSocket行情代理
+	quoteHub := ws.NewQuoteProxyHub()
+	go quoteHub.Run()
+	log.Println("[Main] ✅ WebSocket行情代理已启动")
+
 	// 启动风控调度器（60秒间隔）
 	riskScheduler := scheduler.NewRiskScheduler(app, 60)
 	riskScheduler.Start()
 	log.Println("[Main] ✅ 风控调度器已启动")
+
+	// WebSocket升级器
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true // 允许所有来源（生产环境需要限制）
+		},
+	}
 
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
@@ -52,6 +67,16 @@ func main() {
 	protected := api.Group("", middleware.AuthRequired(app))
 	v1.RegisterOrderRoutes(protected, app)
 	v1.RegisterRiskRoutes(protected, app)
+
+	// WebSocket行情代理接口
+	r.GET("/ws/quote", func(c *gin.Context) {
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			log.Printf("[WebSocket] 升级连接失败: %v", err)
+			return
+		}
+		quoteHub.ServeWs(conn)
+	})
 
 	// 健康检查
 	r.GET("/healthz", func(c *gin.Context) {

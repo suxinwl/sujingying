@@ -106,7 +106,7 @@
  * 4. 组件卸载时断开WebSocket
  */
 
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { quoteWS } from '@/utils/quoteWebSocket'
 import { WS_CONFIG } from '@/config/websocket'
 
@@ -131,6 +131,12 @@ const isConnected = ref(false)
  * @type {Ref<Object>}
  */
 const quoteData = ref({})
+
+/**
+ * 上一次的行情数据（用于检测变化）
+ * @type {Ref<Object>}
+ */
+const prevQuoteData = ref({})
 
 // ========== 辅助函数 ==========
 
@@ -204,13 +210,83 @@ const updateTime = () => {
 }
 
 /**
+ * 触发价格变化闪烁动画
+ * 
+ * @param {string} productCode - 商品代码
+ * @param {string} field - 字段名（buy/sell/high/low）
+ * @param {string} direction - 变化方向（up/down）
+ * @returns {void}
+ */
+const triggerFlash = (productCode, field, direction) => {
+  const selector = `[data-field="${productCode}-${field}"]`
+  const element = document.querySelector(selector)
+  
+  if (element) {
+    // 移除旧的动画类
+    element.classList.remove('flash-up', 'flash-down')
+    
+    // 强制重绘以重新触发动画
+    void element.offsetWidth
+    
+    // 添加新的动画类
+    element.classList.add(direction === 'up' ? 'flash-up' : 'flash-down')
+    
+    // 动画结束后移除类
+    setTimeout(() => {
+      element.classList.remove('flash-up', 'flash-down')
+    }, 600)
+  }
+}
+
+/**
  * 处理行情数据更新
  * WebSocket消息回调函数
+ * 
+ * 功能：
+ * 1. 检测数值变化
+ * 2. 触发闪烁动画
+ * 3. 更新行情数据
  * 
  * @param {Object} items - 行情数据对象
  * @returns {void}
  */
 const handleQuoteUpdate = (items) => {
+  // 遍历所有商品，检测价格变化
+  Object.keys(items).forEach(productCode => {
+    const newData = items[productCode]
+    const oldData = prevQuoteData.value[productCode]
+    
+    if (oldData) {
+      // 检测回购价变化
+      if (newData.Buy !== undefined && newData.Buy !== oldData.Buy) {
+        const direction = newData.Buy > oldData.Buy ? 'up' : 'down'
+        nextTick(() => triggerFlash(productCode, 'buy', direction))
+      }
+      
+      // 检测销售价变化
+      if (newData.Sell !== undefined && newData.Sell !== oldData.Sell) {
+        const direction = newData.Sell > oldData.Sell ? 'up' : 'down'
+        nextTick(() => triggerFlash(productCode, 'sell', direction))
+      }
+      
+      // 检测最高价变化
+      if (newData.H !== undefined && newData.H !== oldData.H) {
+        const direction = newData.H > oldData.H ? 'up' : 'down'
+        nextTick(() => triggerFlash(productCode, 'high', direction))
+      }
+      
+      // 检测最低价变化
+      if (newData.L !== undefined && newData.L !== oldData.L) {
+        const direction = newData.L > oldData.L ? 'up' : 'down'
+        nextTick(() => triggerFlash(productCode, 'low', direction))
+      }
+    }
+  })
+  
+  // 保存旧数据用于下次对比
+  prevQuoteData.value = JSON.parse(JSON.stringify(items))
+  
+  // 更新当前数据
   quoteData.value = items
   isConnected.value = true
 }
@@ -442,15 +518,47 @@ onUnmounted(() => {
 /* ========== 数据变化动画 ========== */
 [data-field] {
   position: relative;
+  transition: all 0.3s ease;
 }
 
-@keyframes priceFlash {
+/* 价格上涨闪烁动画 */
+@keyframes flashUp {
   0% {
-    background-color: rgba(255, 255, 255, 0.3);
+    background-color: rgba(255, 68, 68, 0.4);
+    transform: scale(1.05);
+  }
+  50% {
+    background-color: rgba(255, 68, 68, 0.6);
   }
   100% {
     background-color: transparent;
+    transform: scale(1);
   }
+}
+
+/* 价格下跌闪烁动画 */
+@keyframes flashDown {
+  0% {
+    background-color: rgba(0, 255, 0, 0.4);
+    transform: scale(1.05);
+  }
+  50% {
+    background-color: rgba(0, 255, 0, 0.6);
+  }
+  100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+
+/* 应用上涨动画 */
+.flash-up {
+  animation: flashUp 0.6s ease-out;
+}
+
+/* 应用下跌动画 */
+.flash-down {
+  animation: flashDown 0.6s ease-out;
 }
 
 /* ========== 底部说明 ========== */

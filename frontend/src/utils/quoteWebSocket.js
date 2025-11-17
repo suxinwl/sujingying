@@ -25,19 +25,6 @@ class QuoteWebSocket {
     this.isManualClose = false        // 是否手动关闭
   }
 
-  /**
-   * 生成唯一会话ID
-   * 使用UUID v4格式
-   * 
-   * @returns {string} 格式化的UUID字符串
-   */
-  generateSessionId() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = Math.random() * 16 | 0
-      const v = c === 'x' ? r : (r & 0x3 | 0x8)
-      return v.toString(16)
-    })
-  }
 
   /**
    * 连接WebSocket服务器
@@ -59,12 +46,9 @@ class QuoteWebSocket {
       
       // 连接成功处理
       this.ws.onopen = () => {
-        console.log('[QuoteWS] ✅ 连接成功')
+        console.log('[QuoteWS] ✅ 连接成功到后端代理')
         this.reconnectAttempts = 0
         this.isManualClose = false
-        
-        // 发送订阅消息
-        this.sendSubscribeMessage()
       }
       
       // 接收消息处理
@@ -93,46 +77,6 @@ class QuoteWebSocket {
     }
   }
 
-  /**
-   * 发送订阅消息
-   * 按照服务端协议格式发送订阅请求
-   * 
-   * @returns {void}
-   */
-  sendSubscribeMessage() {
-    const subscribeMessage = {
-      userid: 0,
-      dempCode: WS_CONFIG.DEMP_CODE,
-      channel: 'channel',
-      clientIp: '127.0.0.1',
-      secret: WS_CONFIG.SECRET,
-      sessionId: this.generateSessionId(),
-      subscriptionType: 'all',
-      time: this.formatCurrentTime()
-    }
-    
-    this.ws.send(JSON.stringify(subscribeMessage))
-    console.log('[QuoteWS] 📤 已发送订阅消息')
-  }
-
-  /**
-   * 格式化当前时间
-   * 格式：YYYY-MM-DD HH:mm:ss
-   * 
-   * @returns {string} 格式化的时间字符串
-   */
-  formatCurrentTime() {
-    const now = new Date()
-    return now.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    }).replace(/\//g, '-')
-  }
 
   /**
    * 处理接收到的消息

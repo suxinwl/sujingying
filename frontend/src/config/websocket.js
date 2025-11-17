@@ -10,17 +10,15 @@
  * WebSocket 连接配置
  * @type {Object}
  * @property {string} QUOTE_WS_URL - 行情数据WebSocket服务器地址
- * @property {string} DEMP_CODE - 认证代码
- * @property {string} SECRET - 密钥
  * @property {number} MAX_RECONNECT_ATTEMPTS - 最大重连次数
  * @property {number} RECONNECT_BASE_DELAY - 重连基础延迟（毫秒）
  * @property {number} MAX_RECONNECT_DELAY - 最大重连延迟（毫秒）
  */
 export const WS_CONFIG = {
-  // 真实行情数据源
-  QUOTE_WS_URL: 'wss://push143.jtd9999.vip/ws',
-  DEMP_CODE: 'e2571ebfeb4c217b4f6adac7a1ef3d4d',
-  SECRET: 'ceb1b5791048bb9ca438582b534d005b',
+  // 后端WebSocket代理接口（已封装外部数据源）
+  QUOTE_WS_URL: import.meta.env.DEV 
+    ? 'ws://localhost:8080/ws/quote'  // 开发环境
+    : 'wss://your-domain.com/ws/quote', // 生产环境
   
   // 重连配置
   MAX_RECONNECT_ATTEMPTS: 10,
