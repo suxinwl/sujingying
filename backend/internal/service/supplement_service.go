@@ -15,6 +15,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"suxin/internal/appctx"
 	"suxin/internal/model"
@@ -42,16 +43,20 @@ func NewSupplementService(ctx *appctx.AppContext) *SupplementService {
 }
 
 /**
- * SubmitSupplement 提交补定金申请
+ * SubmitSupplement 提交补定金（自动处理，无需审批）
+ * 
+ * 流程：
+ * 1. 验证订单和金额
+ * 2. 检查可用定金是否充足
+ * 3. 如果充足：直接扣减可用定金，增加订单定金
+ * 4. 如果不足：返回错误提示充值
  * 
  * @param userID uint - 用户ID
  * @param orderID uint - 订单ID
  * @param amount float64 - 补充金额
- * @param method string - 补充方式
- * @param voucherURL string - 凭证URL
  * @return (*model.SupplementDeposit, error)
  */
-func (s *SupplementService) SubmitSupplement(userID, orderID uint, amount float64, method, voucherURL string) (*model.SupplementDeposit, error) {
+func (s *SupplementService) SubmitSupplement(userID, orderID uint, amount float64) (*model.SupplementDeposit, error) {
 	// 1. 验证金额
 	if amount <= 0 {
 		return nil, errors.New("补充金额必须大于0")
@@ -73,19 +78,97 @@ func (s *SupplementService) SubmitSupplement(userID, orderID uint, amount float6
 		return nil, errors.New("只能为持仓订单补充定金")
 	}
 
-	// 5. 创建补定金申请
+	// 5. 查询用户
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return nil, errors.New("用户不存在")
+	}
+
+	// 6. 检查可用定金是否充足
+	if user.AvailableDeposit < amount {
+		return nil, fmt.Errorf("可用定金不足，当前可用: %.2f 元，需要: %.2f 元，请先充值", 
+			user.AvailableDeposit, amount)
+	}
+
+	// 7. 开启事务
+	tx := s.ctx.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// 8. 创建补定金记录
 	supplement := &model.SupplementDeposit{
 		UserID:     userID,
 		OrderID:    orderID,
 		Amount:     amount,
-		Method:     method,
-		VoucherURL: voucherURL,
-		Status:     model.SupplementStatusPending,
+		Method:     "available_deposit", // 从可用定金扣减
+		Status:     model.SupplementStatusApproved, // 直接通过
 	}
 
-	if err := s.supplementRepo.Create(supplement); err != nil {
-		return nil, fmt.Errorf("创建申请失败: %v", err)
+	// 设置为自动通过
+	now := time.Now()
+	supplement.ReviewedAt = &now
+	
+	if err := tx.Create(supplement).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("创建补定金记录失败: %v", err)
 	}
+
+	// 9. 扣减用户可用定金，增加已用定金
+	oldDeposit := order.Deposit
+	newAvailable := user.AvailableDeposit - amount
+	newUsed := user.UsedDeposit + amount
+	
+	if err := tx.Model(&model.User{}).Where("id = ?", user.ID).Updates(map[string]interface{}{
+		"available_deposit": newAvailable,
+		"used_deposit":      newUsed,
+	}).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("扣减可用定金失败: %v", err)
+	}
+
+	// 10. 增加订单定金
+	order.Deposit += amount
+	
+	// 11. 重新计算定金率
+	if order.CurrentPrice > 0 {
+		order.UpdatePnLAndMargin(order.CurrentPrice)
+	}
+	
+	if err := tx.Save(order).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("更新订单定金失败: %v", err)
+	}
+
+	// 12. 记录资金流水
+	fundLog := &model.FundLog{
+		UserID:          user.ID,
+		Type:            "supplement",
+		Amount:          -amount,
+		AvailableBefore: user.AvailableDeposit,
+		AvailableAfter:  newAvailable,
+		UsedBefore:      user.UsedDeposit,
+		UsedAfter:       newUsed,
+		RelatedID:       order.ID,
+		RelatedType:     "order",
+		Note:            fmt.Sprintf("补充定金: %.2f元 (订单%s)", amount, order.OrderID),
+	}
+	if err := tx.Create(fundLog).Error; err != nil {
+		tx.Rollback()
+		return nil, fmt.Errorf("记录流水失败: %v", err)
+	}
+
+	// 13. 提交事务
+	if err := tx.Commit().Error; err != nil {
+		return nil, fmt.Errorf("事务提交失败: %v", err)
+	}
+
+	// 14. 发送通知
+	notifyMsg := fmt.Sprintf("补定金成功\n订单号：%s\n补充金额：%.2f 元\n订单定金：%.2f → %.2f 元\n定金率：%.2f%%",
+		order.OrderID, amount, oldDeposit, order.Deposit, order.MarginRate)
+	s.notiSvc.SendFundNotification(user.ID, "补定金成功", notifyMsg)
 
 	return supplement, nil
 }
