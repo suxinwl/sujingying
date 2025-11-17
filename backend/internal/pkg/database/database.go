@@ -46,5 +46,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.LoginLog{},
 		&model.Order{},
 		&model.RiskConfig{},
+		&model.Notification{},
 	)
 }

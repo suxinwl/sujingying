@@ -30,6 +30,7 @@ type RiskService struct {
 	ctx       *appctx.AppContext
 	orderRepo *repository.OrderRepository
 	userRepo  *repository.UserRepository
+	notiSvc   *NotificationService
 }
 
 /**
@@ -43,6 +44,7 @@ func NewRiskService(ctx *appctx.AppContext) *RiskService {
 		ctx:       ctx,
 		orderRepo: repository.NewOrderRepository(ctx.DB),
 		userRepo:  repository.NewUserRepository(ctx.DB),
+		notiSvc:   NewNotificationService(ctx),
 	}
 }
 
@@ -200,7 +202,10 @@ func (s *RiskService) AutoForceClose(orders []*model.Order, closePrice float64) 
 		log.Printf("[Risk] ✅ 订单 %s 强制平仓成功，平仓价 %.2f，最终盈亏 %.2f",
 			order.OrderID, closePrice, finalPnL)
 
-		// TODO: 7. 发送强平通知（后续实现）
+		// 7. 发送强平通知
+		notifyMsg := fmt.Sprintf("您的订单已触发强制平仓\n平仓价格：%.2f 元/克\n最终盈亏：%.2f 元\n账户可用定金：%.2f 元",
+			closePrice, finalPnL, newAvailable)
+		s.notiSvc.SendRiskNotification(order.UserID, order.OrderID, notifyMsg, true)
 	}
 
 	log.Printf("[Risk] 🎯 自动强平完成：成功 %d/%d 单", successCount, len(orders))
@@ -237,16 +242,24 @@ func (s *RiskService) RunRiskCheck(currentPrice float64) error {
 		}
 	}
 
-	// 3. 发送高风险预警（后续实现）
+	// 3. 发送高风险预警
 	if len(result.HighRisk) > 0 {
 		log.Printf("[Risk] ⚠️ 发现 %d 单高风险订单", len(result.HighRisk))
-		// TODO: 发送通知
+		for _, order := range result.HighRisk {
+			notifyMsg := fmt.Sprintf("定金率：%.2f%%（已进入高风险区间20%%~25%%）\n请及时补充定金或平仓止损",
+				order.MarginRate)
+			s.notiSvc.SendRiskNotification(order.UserID, order.OrderID, notifyMsg, false)
+		}
 	}
 
-	// 4. 发送一般预警（后续实现）
+	// 4. 发送一般预警
 	if len(result.Warning) > 0 {
 		log.Printf("[Risk] ⚠️ 发现 %d 单需要预警", len(result.Warning))
-		// TODO: 发送通知
+		for _, order := range result.Warning {
+			notifyMsg := fmt.Sprintf("定金率：%.2f%%（建议补充定金）\n当前价格：%.2f 元/克\n浮动盈亏：%.2f 元",
+				order.MarginRate, order.CurrentPrice, order.PnLFloat)
+			s.notiSvc.SendRiskNotification(order.UserID, order.OrderID, notifyMsg, false)
+		}
 	}
 
 	return nil

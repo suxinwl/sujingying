@@ -67,6 +67,7 @@ func main() {
 	protected := api.Group("", middleware.AuthRequired(app))
 	v1.RegisterOrderRoutes(protected, app)
 	v1.RegisterRiskRoutes(protected, app)
+	v1.RegisterNotificationRoutes(protected, app)
 
 	// WebSocket行情代理接口
 	r.GET("/ws/quote", func(c *gin.Context) {
