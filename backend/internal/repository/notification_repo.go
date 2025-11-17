@@ -138,21 +138,24 @@ func (r *NotificationRepository) MarkAsRead(ids []uint, userID uint) error {
  * @return error
  */
 func (r *NotificationRepository) MarkAllAsRead(userID uint) error {
-	// 即使没有未读通知也返回成功，不报错
-	result := r.db.Model(&model.Notification{}).
+	// 先检查是否有未读通知
+	var count int64
+	r.db.Model(&model.Notification{}).
+		Where("user_id = ? AND status != ?", userID, model.NotifyStatusRead).
+		Count(&count)
+	
+	// 如果没有未读通知，直接返回成功
+	if count == 0 {
+		return nil
+	}
+	
+	// 有未读通知，执行更新
+	return r.db.Model(&model.Notification{}).
 		Where("user_id = ? AND status != ?", userID, model.NotifyStatusRead).
 		Updates(map[string]interface{}{
 			"status":  model.NotifyStatusRead,
 			"read_at": gorm.Expr("NOW()"),
-		})
-	
-	// 返回数据库错误，但忽略"没有记录更新"的情况
-	if result.Error != nil {
-		return result.Error
-	}
-	
-	// 成功，即使RowsAffected为0也不报错
-	return nil
+		}).Error
 }
 
 /**
