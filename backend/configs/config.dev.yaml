@@ -1,0 +1,4 @@
+database:
+  type: sqlite
+  sqlite:
+    path: ./data/sujinying.db
