@@ -73,6 +73,9 @@ func main() {
 	v1.RegisterDepositRoutes(protected, app)
 	v1.RegisterWithdrawRoutes(protected, app)
 	v1.RegisterFundLogRoutes(protected, app)
+	v1.RegisterUserManageRoutes(protected, app)
+	v1.RegisterConfigRoutes(protected, app)
+	v1.RegisterSupplementRoutes(protected, app)
 
 	// WebSocket行情代理接口
 	r.GET("/ws/quote", func(c *gin.Context) {

@@ -19,6 +19,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"suxin/internal/appctx"
+	"suxin/internal/middleware"
+	"suxin/internal/model"
 	"suxin/internal/repository"
 	"suxin/internal/service"
 )
@@ -108,41 +110,50 @@ func RegisterSalesRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	/**
 	 * GET /sales/customers - 获取销售的客户列表
 	 * 
+	 * 权限说明：
+	 * - 销售：只能查看自己的客户
+	 * - 客服/超级管理员：可以查看所有销售的客户
+	 * 
 	 * 查询参数：
-	 * - salesperson_id: 销售人员ID（可选，默认当前用户）
+	 * - salesperson_id: 销售人员ID（可选，销售默认当前用户）
 	 * - limit: 每页数量（默认20）
 	 * - offset: 偏移量（默认0）
-	 * 
-	 * 响应：
-	 * {
-	 *   "customers": [
-	 *     {
-	 *       "id": 1,
-	 *       "phone": "13900000001",
-	 *       "created_at": "2025-11-18",
-	 *       "available_deposit": 50000.00,
-	 *       "used_deposit": 10000.00
-	 *     }
-	 *   ],
-	 *   "total": 50
-	 * }
 	 */
-	rg.GET("/sales/customers", func(c *gin.Context) {
+	rg.GET("/sales/customers", middleware.CanViewCustomer(ctx), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		userRole := c.GetString("user_role")
+		canViewAll := c.GetBool("can_view_all_customers")
+		
 		// 获取销售人员ID
 		salespersonIDStr := c.Query("salesperson_id")
 		var salespersonID uint
-		if salespersonIDStr != "" {
-			id, _ := strconv.ParseUint(salespersonIDStr, 10, 32)
-			salespersonID = uint(id)
-		} else {
-			salespersonID = c.GetUint("user_id")
-		}
 		
-		// TODO: 验证salespersonID是否是销售人员
+		if canViewAll {
+			// 客服/超级管理员可以查看指定销售的客户
+			if salespersonIDStr != "" {
+				id, _ := strconv.ParseUint(salespersonIDStr, 10, 32)
+				salespersonID = uint(id)
+			}
+		} else if userRole == middleware.RoleSales {
+			// 销售只能查看自己的客户
+			salespersonID = userID
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{"error": "权限不足"})
+			return
+		}
 		
 		// 查询客户列表
 		userRepo := repository.NewUserRepository(ctx.DB)
-		customers, err := userRepo.FindBySalesID(salespersonID)
+		var customers []*model.User
+		var err error
+		
+		if salespersonID != 0 {
+			customers, err = userRepo.FindBySalesID(salespersonID)
+		} else {
+			// 查询所有客户（仅管理员）
+			err = ctx.DB.Where("role = ?", "customer").Find(&customers).Error
+		}
+		
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -154,6 +165,7 @@ func RegisterSalesRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			result = append(result, map[string]interface{}{
 				"id":                customer.ID,
 				"phone":             customer.Phone,
+				"sales_id":          customer.SalesID,
 				"created_at":        customer.CreatedAt,
 				"available_deposit": customer.AvailableDeposit,
 				"used_deposit":      customer.UsedDeposit,
@@ -169,37 +181,42 @@ func RegisterSalesRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	/**
 	 * GET /sales/commissions - 获取提成明细
 	 * 
+	 * 权限说明：
+	 * - 销售：只能查看自己的提成
+	 * - 客服/超级管理员：可以查看所有销售的提成
+	 * 
 	 * 查询参数：
-	 * - salesperson_id: 销售人员ID（可选，默认当前用户）
+	 * - salesperson_id: 销售人员ID（可选，销售默认当前用户）
 	 * - limit: 每页数量（默认20）
 	 * - offset: 偏移量（默认0）
-	 * 
-	 * 响应：
-	 * {
-	 *   "commissions": [
-	 *     {
-	 *       "id": 1,
-	 *       "order_id": 123,
-	 *       "customer_id": 456,
-	 *       "weight_g": 100.0,
-	 *       "commission_rate": 0.0001,
-	 *       "points": 0.01,
-	 *       "settled_at": "2025-11-18"
-	 *     }
-	 *   ],
-	 *   "total": 100,
-	 *   "total_points": 50.00
-	 * }
 	 */
-	rg.GET("/sales/commissions", func(c *gin.Context) {
+	rg.GET("/sales/commissions", middleware.CanViewCustomer(ctx), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		userRole := c.GetString("user_role")
+		canViewAll := c.GetBool("can_view_all_customers")
+		
 		// 获取销售人员ID
 		salespersonIDStr := c.Query("salesperson_id")
 		var salespersonID uint
-		if salespersonIDStr != "" {
-			id, _ := strconv.ParseUint(salespersonIDStr, 10, 32)
-			salespersonID = uint(id)
+		
+		if canViewAll {
+			// 客服/超级管理员可以查看指定销售的提成
+			if salespersonIDStr != "" {
+				id, _ := strconv.ParseUint(salespersonIDStr, 10, 32)
+				salespersonID = uint(id)
+			}
+		} else if userRole == middleware.RoleSales {
+			// 销售只能查看自己的提成
+			salespersonID = userID
 		} else {
-			salespersonID = c.GetUint("user_id")
+			c.JSON(http.StatusForbidden, gin.H{"error": "权限不足，只有销售人员可以查看提成"})
+			return
+		}
+		
+		// 如果没有指定销售ID且是管理员，返回错误
+		if salespersonID == 0 && canViewAll {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请指定销售人员ID"})
+			return
 		}
 		
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))

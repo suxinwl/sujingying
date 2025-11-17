@@ -53,5 +53,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.FundLog{},
 		&model.Salesperson{},
 		&model.CommissionRecord{},
+		&model.SystemConfig{},
+		&model.SupplementDeposit{},
 	)
 }
