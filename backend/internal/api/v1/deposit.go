@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"suxin/internal/appctx"
+	"suxin/internal/middleware"
 	"suxin/internal/service"
 )
 
@@ -124,17 +125,15 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	/**
 	 * GET /deposits/pending - 查询待审核列表（管理员）
 	 * 
-	 * 查询参数：
-	 * - limit: 数量限制（默认50）
-	 * 
 	 * 响应：
 	 * {
 	 *   "deposits": [...],
-	 *   "total": 5
+	 *   "total": 10
 	 * }
 	 */
-	rg.GET("/deposits/pending", func(c *gin.Context) {
-		// TODO: 添加管理员权限验证
+	admin := rg.Group("", middleware.RequireAdmin(ctx))
+	
+	admin.GET("/deposits/pending", func(c *gin.Context) {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 		
 		deposits, err := depositSvc.GetPendingDeposits(limit)
@@ -164,8 +163,7 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	 *   "deposit": {...}
 	 * }
 	 */
-	rg.POST("/deposits/:id/review", func(c *gin.Context) {
-		// TODO: 添加管理员权限验证
+	admin.POST("/deposits/:id/review", func(c *gin.Context) {
 		depositID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的充值ID"})
@@ -267,8 +265,11 @@ func RegisterWithdrawRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		})
 	})
 	
-	// GET /withdraws/pending - 查询待审核列表
-	rg.GET("/withdraws/pending", func(c *gin.Context) {
+	// 管理员权限路由组
+	admin := rg.Group("", middleware.RequireAdmin(ctx))
+	
+	// GET /withdraws/pending - 查询待审核列表（管理员）
+	admin.GET("/withdraws/pending", func(c *gin.Context) {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 		
 		withdraws, err := withdrawSvc.GetPendingWithdraws(limit)
@@ -283,8 +284,8 @@ func RegisterWithdrawRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		})
 	})
 	
-	// POST /withdraws/:id/review - 审核提现
-	rg.POST("/withdraws/:id/review", func(c *gin.Context) {
+	// POST /withdraws/:id/review - 审核提现（管理员）
+	admin.POST("/withdraws/:id/review", func(c *gin.Context) {
 		withdrawID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的提现ID"})

@@ -24,11 +24,12 @@ import (
  * RiskScheduler 风控调度器
  */
 type RiskScheduler struct {
-	ctx         *appctx.AppContext
-	riskService *service.RiskService
-	ticker      *time.Ticker
-	stopChan    chan bool
-	interval    time.Duration
+	ctx          *appctx.AppContext
+	riskService  *service.RiskService
+	quoteService *service.QuoteService
+	ticker       *time.Ticker
+	stopChan     chan bool
+	interval     time.Duration
 }
 
 /**
@@ -39,11 +40,17 @@ type RiskScheduler struct {
  * @return *RiskScheduler
  */
 func NewRiskScheduler(ctx *appctx.AppContext, intervalSeconds int) *RiskScheduler {
+	quoteService := service.NewQuoteService()
+	
+	// 启动价格自动更新器（每30秒更新一次）
+	quoteService.StartPriceUpdater(30 * time.Second)
+	
 	return &RiskScheduler{
-		ctx:         ctx,
-		riskService: service.NewRiskService(ctx),
-		stopChan:    make(chan bool),
-		interval:    time.Duration(intervalSeconds) * time.Second,
+		ctx:          ctx,
+		riskService:  service.NewRiskService(ctx),
+		quoteService: quoteService,
+		stopChan:     make(chan bool),
+		interval:     time.Duration(intervalSeconds) * time.Second,
 	}
 }
 
@@ -51,18 +58,22 @@ func NewRiskScheduler(ctx *appctx.AppContext, intervalSeconds int) *RiskSchedule
  * getCurrentMarketPrice 获取当前市场价格
  * 
  * 说明：
- * - 当前版本使用固定价格进行测试
- * - 后续版本将从WebSocket行情数据中获取实时价格
- * - 可以从行情缓存、第三方API或配置文件读取
- * 
- * TODO: 集成实时行情数据源
+ * - 从QuoteService获取实时价格
+ * - 支持多数据源fallback
+ * - 如果API获取失败，使用模拟价格
  * 
  * @return float64 - 当前市场价格（元/克）
  */
 func (s *RiskScheduler) getCurrentMarketPrice() float64 {
-	// TODO: 从WebSocket行情数据或其他数据源获取实时价格
-	// 当前使用测试价格
-	return 500.00
+	// 从QuoteService获取价格
+	price, err := s.quoteService.GetCurrentPrice()
+	if err != nil {
+		log.Printf("[RiskScheduler] ⚠️ 获取价格失败: %v，使用模拟价格", err)
+		// 使用模拟价格作为fallback
+		price = s.quoteService.SimulatePrice()
+	}
+	
+	return price
 }
 
 /**

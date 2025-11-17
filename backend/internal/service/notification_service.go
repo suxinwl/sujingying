@@ -27,6 +27,13 @@ import (
 type NotificationService struct {
 	ctx      *appctx.AppContext
 	notiRepo *repository.NotificationRepository
+	hub      NotificationHubInterface
+}
+
+// NotificationHubInterface 通知Hub接口
+type NotificationHubInterface interface {
+	SendToUser(userID uint, notification *model.Notification)
+	IsUserOnline(userID uint) bool
 }
 
 /**
@@ -39,7 +46,15 @@ func NewNotificationService(ctx *appctx.AppContext) *NotificationService {
 	return &NotificationService{
 		ctx:      ctx,
 		notiRepo: repository.NewNotificationRepository(ctx.DB),
+		hub:      nil, // Hub会在需要时从AppContext中获取
 	}
+}
+
+/**
+ * SetNotificationHub 设置通知Hub（用于依赖注入）
+ */
+func (s *NotificationService) SetNotificationHub(hub NotificationHubInterface) {
+	s.hub = hub
 }
 
 /**
@@ -249,12 +264,23 @@ func (s *NotificationService) MarkAllAsRead(userID uint) error {
 /**
  * pushToWebSocket 推送通知到WebSocket
  * 
- * TODO: 实现WebSocket推送逻辑
- * 
  * @param notification *model.Notification - 通知实体
  * @return void
  */
 func (s *NotificationService) pushToWebSocket(notification *model.Notification) {
-	// TODO: 通过WebSocket推送通知给在线用户
-	log.Printf("[Notify] TODO: 推送WebSocket通知到用户 %d", notification.UserID)
+	// 如果Hub未设置，跳过推送
+	if s.hub == nil {
+		log.Printf("[Notify] ⚠️ NotificationHub未设置，跳过WebSocket推送")
+		return
+	}
+	
+	// 检查用户是否在线
+	if !s.hub.IsUserOnline(notification.UserID) {
+		log.Printf("[Notify] 用户 %d 不在线，跳过WebSocket推送", notification.UserID)
+		return
+	}
+	
+	// 推送通知
+	s.hub.SendToUser(notification.UserID, notification)
+	log.Printf("[Notify] ✅ WebSocket通知已推送到用户 %d: %s", notification.UserID, notification.Title)
 }

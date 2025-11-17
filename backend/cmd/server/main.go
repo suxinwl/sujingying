@@ -43,6 +43,11 @@ func main() {
 	quoteHub := ws.NewQuoteProxyHub()
 	go quoteHub.Run()
 	log.Println("[Main] ✅ WebSocket行情代理已启动")
+	
+	// 启动WebSocket通知推送中心
+	notificationHub := ws.NewNotificationHub()
+	go notificationHub.Run()
+	log.Println("[Main] ✅ WebSocket通知推送中心已启动")
 
 	// 启动风控调度器（60秒间隔）
 	riskScheduler := scheduler.NewRiskScheduler(app, 60)
@@ -86,6 +91,24 @@ func main() {
 			return
 		}
 		quoteHub.ServeWs(conn)
+	})
+	
+	// WebSocket通知推送接口（需要JWT认证）
+	r.GET("/ws/notification", middleware.AuthRequired(app), func(c *gin.Context) {
+		userID := c.GetUint("user_id")
+		if userID == 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+			return
+		}
+		
+		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+		if err != nil {
+			log.Printf("[WebSocket] 通知连接升级失败: %v", err)
+			return
+		}
+		
+		notificationHub.ServeWs(userID, conn)
+		log.Printf("[WebSocket] 用户 %d 建立通知连接", userID)
 	})
 
 	// 健康检查

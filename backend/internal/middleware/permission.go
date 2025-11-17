@@ -14,6 +14,7 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
@@ -183,14 +184,53 @@ func CheckCustomerOwnership(ctx *appctx.AppContext, paramName string) gin.Handle
 
 		// 销售需要验证客户归属
 		if userRole == RoleSales {
-			// TODO: 验证customer是否属于当前销售
+			// 获取目标客户ID
+			targetCustomerID, err := strconv.ParseUint(targetCustomerIDStr, 10, 32)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "无效的客户ID"})
+				c.Abort()
+				return
+			}
+			
+			// 验证客户是否属于当前销售
+			userRepo := repository.NewUserRepository(ctx.DB)
+			customer, err := userRepo.FindByID(uint(targetCustomerID))
+			if err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "客户不存在"})
+				c.Abort()
+				return
+			}
+			
+			// 检查客户的销售ID是否匹配
+			currentUserID := c.GetUint("user_id")
+			if customer.SalesID != currentUserID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "无权访问该客户信息，该客户不属于您"})
+				c.Abort()
+				return
+			}
+			
 			c.Next()
 			return
 		}
 
 		// 客户只能访问自己
 		if userRole == RoleCustomer {
-			// TODO: 验证是否是本人
+			// 获取目标客户ID
+			targetCustomerID, err := strconv.ParseUint(targetCustomerIDStr, 10, 32)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "无效的客户ID"})
+				c.Abort()
+				return
+			}
+			
+			// 验证是否是本人
+			currentUserID := c.GetUint("user_id")
+			if uint(targetCustomerID) != currentUserID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "您只能访问自己的信息"})
+				c.Abort()
+				return
+			}
+			
 			c.Next()
 			return
 		}
