@@ -15,9 +15,10 @@ import (
 )
 
 type registerReq struct {
-	Phone    string `json:"phone"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Phone      string `json:"phone"`
+	Password   string `json:"password"`
+	Role       string `json:"role"`
+	InviteCode string `json:"invite_code"` // 邀请码（可选）
 }
 
 type loginReq struct {
@@ -48,6 +49,16 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		
+		// 处理邀请码（如果提供）
+		if req.InviteCode != "" {
+			invitationSvc := service.NewInvitationService(ctx)
+			if err := invitationSvc.ProcessInvitation(u.ID, req.InviteCode); err != nil {
+				// 邀请码处理失败不影响注册，只记录日志
+				// TODO: 添加日志记录
+			}
+		}
+		
 		c.JSON(http.StatusOK, gin.H{"id": u.ID, "phone": u.Phone, "role": u.Role})
 	})
 

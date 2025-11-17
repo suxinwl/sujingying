@@ -55,5 +55,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.CommissionRecord{},
 		&model.SystemConfig{},
 		&model.SupplementDeposit{},
+		&model.InvitationCode{},
+		&model.InvitationRecord{},
+		&model.TeamRelation{},
 	)
 }
