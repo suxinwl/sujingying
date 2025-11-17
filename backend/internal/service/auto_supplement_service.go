@@ -46,7 +46,7 @@ func NewAutoSupplementService(ctx *appctx.AppContext) *AutoSupplementService {
  * 1. 用户必须启用自动补定金功能
  * 2. 订单定金率低于触发阈值（默认50%）
  * 3. 用户有足够的可用定金
- * 4. 自动补充到目标阈值（默认80%）
+ * 4. 自动补充到目标阈值（默认100%）
  * 
  * @param orderID uint - 订单ID
  * @return bool - 是否执行了自动补定金
@@ -153,18 +153,18 @@ func (s *AutoSupplementService) getTriggerRate() float64 {
 }
 
 /**
- * getTargetRate 获取目标阈值（默认80%）
+ * getTargetRate 获取目标阈值（默认100%）
  */
 func (s *AutoSupplementService) getTargetRate() float64 {
 	config, err := s.configRepo.FindByKey(model.ConfigKeyAutoSupplementTarget)
 	if err != nil || config == nil {
-		return 80.0 // 默认80%
+		return 100.0 // 默认100%
 	}
 	
 	var rate float64
 	fmt.Sscanf(config.Value, "%f", &rate)
-	if rate <= 0 || rate >= 100 {
-		return 80.0
+	if rate <= 0 || rate > 100 {
+		return 100.0
 	}
 	return rate
 }

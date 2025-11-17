@@ -41,25 +41,35 @@ func NewInvitationService(ctx *appctx.AppContext) *InvitationService {
 }
 
 /**
- * GenerateInvitationCode 生成邀请码
+ * GenerateInvitationCode 生成邀请码（仅销售可生成）
  * 
  * @param userID uint - 用户ID
  * @return (string, error)
  */
 func (s *InvitationService) GenerateInvitationCode(userID uint) (string, error) {
-	// 检查是否已有邀请码
+	// 1. 验证用户角色（只有销售可以生成邀请码）
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return "", errors.New("用户不存在")
+	}
+	
+	if user.Role != "sales" {
+		return "", errors.New("只有销售人员可以生成邀请码")
+	}
+	
+	// 2. 检查是否已有邀请码
 	existingCode, err := s.invitationRepo.FindInvitationCodeByUserID(userID)
 	if err == nil && existingCode != nil {
 		return existingCode.Code, nil
 	}
 
-	// 生成唯一邀请码
+	// 3. 生成唯一邀请码
 	code, err := s.generateUniqueCode()
 	if err != nil {
 		return "", err
 	}
 
-	// 创建邀请码记录
+	// 4. 创建邀请码记录
 	invCode := &model.InvitationCode{
 		UserID:   userID,
 		Code:     code,
@@ -98,9 +108,20 @@ func (s *InvitationService) generateUniqueCode() (string, error) {
 }
 
 /**
- * GetMyInvitationCode 获取我的邀请码
+ * GetMyInvitationCode 获取我的邀请码（仅销售可获取）
  */
 func (s *InvitationService) GetMyInvitationCode(userID uint) (string, error) {
+	// 1. 验证用户角色
+	user, err := s.userRepo.FindByID(userID)
+	if err != nil {
+		return "", errors.New("用户不存在")
+	}
+	
+	if user.Role != "sales" {
+		return "", errors.New("只有销售人员可以拥有邀请码")
+	}
+	
+	// 2. 查找现有邀请码
 	code, err := s.invitationRepo.FindInvitationCodeByUserID(userID)
 	if err != nil {
 		// 如果没有邀请码，自动生成一个

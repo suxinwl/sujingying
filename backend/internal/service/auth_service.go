@@ -36,7 +36,13 @@ func (s *AuthService) Register(phone, password, role string) (*model.User, error
 	if err != nil {
 		return nil, err
 	}
-	u := &model.User{Phone: phone, Password: h, Role: role}
+	// 注册时默认状态为pending，需要客服审核
+	u := &model.User{
+		Phone: phone, 
+		Password: h, 
+		Role: role,
+		Status: model.UserStatusPending,
+	}
 	if err := s.repo.Create(u); err != nil {
 		return nil, err
 	}
@@ -56,6 +62,17 @@ func (s *AuthService) Login(phone, password, ip, userAgent string) (string, stri
 	if err != nil {
 		s.logFailedLogin(0, phone, ip, userAgent, "用户不存在")
 		return "", "", nil, errors.New("用户名或密码错误")
+	}
+
+	// 检查用户状态
+	if u.Status == model.UserStatusPending {
+		s.logFailedLogin(u.ID, phone, ip, userAgent, "账户待审核")
+		return "", "", nil, errors.New("您的账户还在审核中，请联系客服")
+	}
+	
+	if u.Status == model.UserStatusDisabled {
+		s.logFailedLogin(u.ID, phone, ip, userAgent, "账户已禁用")
+		return "", "", nil, errors.New("您的账户已被禁用，请联系客服")
 	}
 
 	if !security.CheckPassword(password, u.Password) {

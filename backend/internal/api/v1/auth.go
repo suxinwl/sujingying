@@ -15,10 +15,9 @@ import (
 )
 
 type registerReq struct {
-	Phone      string `json:"phone"`
-	Password   string `json:"password"`
-	Role       string `json:"role"`
-	InviteCode string `json:"invite_code"` // 邀请码（可选）
+	Phone      string `json:"phone" binding:"required"`
+	Password   string `json:"password" binding:"required,min=6"`
+	InviteCode string `json:"invite_code" binding:"required"` // 邀请码（必填）
 }
 
 type loginReq struct {
@@ -41,25 +40,46 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	rg.POST("/auth/register", func(c *gin.Context) {
 		var req registerReq
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
 			return
 		}
-		u, err := authSvc.Register(req.Phone, req.Password, req.Role)
+		
+		// 1. 验证邀请码
+		invitationSvc := service.NewInvitationService(ctx)
+		inviteCode, err := invitationSvc.ValidateInvitationCode(req.InviteCode)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "邀请码无效或已失效"})
+			return
+		}
+		
+		// 2. 注册用户（role固定为customer，status为pending）
+		u, err := authSvc.Register(req.Phone, req.Password, "customer")
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		
-		// 处理邀请码（如果提供）
-		if req.InviteCode != "" {
-			invitationSvc := service.NewInvitationService(ctx)
-			if err := invitationSvc.ProcessInvitation(u.ID, req.InviteCode); err != nil {
-				// 邀请码处理失败不影响注册，只记录日志
-				// TODO: 添加日志记录
-			}
+		// 3. 处理邀请码，建立销售关系
+		if err := invitationSvc.ProcessInvitation(u.ID, req.InviteCode); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "邀请关系建立失败"})
+			return
 		}
 		
-		c.JSON(http.StatusOK, gin.H{"id": u.ID, "phone": u.Phone, "role": u.Role})
+		// 4. 绑定销售关系（SalesID = 邀请人ID）
+		if err := ctx.DB.Model(&u).Update("sales_id", inviteCode.UserID).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "销售关系绑定失败"})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"message": "注册成功，请等待客服审核后才可登录",
+			"user": gin.H{
+				"id": u.ID, 
+				"phone": u.Phone, 
+				"role": u.Role,
+				"status": u.Status,
+			},
+		})
 	})
 
 	rg.POST("/auth/login", func(c *gin.Context) {

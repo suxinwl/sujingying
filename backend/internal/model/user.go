@@ -11,6 +11,7 @@ type User struct {
 	Phone            string         `gorm:"type:varchar(20);uniqueIndex;not null"`
 	Password         string         `gorm:"type:varchar(255);not null"`
 	Role             string         `gorm:"type:varchar(20);index;not null"` // customer/sales/support/super_admin
+	Status           string         `gorm:"type:varchar(20);default:'pending';index"` // pending/active/disabled
 	SalesID          uint           `gorm:"index"`                             // 归属销售ID
 	AvailableDeposit float64        `gorm:"type:decimal(15,2);default:0"`     // 可用定金
 	UsedDeposit      float64        `gorm:"type:decimal(15,2);default:0"`     // 已用定金（冻结）
@@ -25,3 +26,10 @@ type User struct {
 	UpdatedAt time.Time
 	DeletedAt gorm.DeletedAt `gorm:"index"`
 }
+
+// 用户状态常量
+const (
+	UserStatusPending  = "pending"  // 待审核
+	UserStatusActive   = "active"   // 正常
+	UserStatusDisabled = "disabled" // 禁用
+)
