@@ -17,6 +17,9 @@ type User struct {
 
 	PayPassword   string `gorm:"type:varchar(255)"` // 支付密码（单独加密存储）
 	HasPayPassword bool   `gorm:"default:false"`
+	
+	// 自动补定金功能（只能由客服启用）
+	AutoSupplementEnabled bool `gorm:"default:false"` // 是否启用自动补定金
 
 	CreatedAt time.Time
 	UpdatedAt time.Time

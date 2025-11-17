@@ -74,4 +74,8 @@ const (
 	// 杠杆相关
 	ConfigKeyMaxLeverage       = "max_leverage"        // 最大杠杆倍数
 	ConfigKeyMinLeverage       = "min_leverage"        // 最小杠杆倍数
+	
+	// 自动补定金相关
+	ConfigKeyAutoSupplementTrigger = "auto_supplement_trigger" // 自动补定金触发阈值（默认50%）
+	ConfigKeyAutoSupplementTarget  = "auto_supplement_target"  // 自动补定金目标阈值（默认80%）
 )

@@ -14,6 +14,7 @@
 package v1
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -33,6 +34,10 @@ type updateUserReq struct {
 
 type resetPasswordReq struct {
 	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
+type toggleAutoSupplementReq struct {
+	Enabled bool `json:"enabled"` // 是否启用自动补定金
 }
 
 /**
@@ -230,6 +235,71 @@ func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		
 		c.JSON(http.StatusOK, gin.H{
 			"message": "密码重置成功",
+		})
+	})
+	
+	/**
+	 * POST /users/:id/toggle-auto-supplement - 启用/禁用自动补定金
+	 * 
+	 * 权限：只有客服和超级管理员可以操作
+	 * 
+	 * 功能说明：
+	 * - 为用户启用/禁用自动补定金功能
+	 * - 启用后，当订单定金率低于50%时，自动从可用定金补充到80%
+	 * - 用户自己无法启用该功能，只能由客服操作
+	 * 
+	 * 请求body：
+	 * {
+	 *   "enabled": true  // true=启用，false=禁用
+	 * }
+	 */
+	admin.POST("/users/:id/toggle-auto-supplement", func(c *gin.Context) {
+		userID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+			return
+		}
+		
+		var req toggleAutoSupplementReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+		
+		// 查询用户
+		user, err := userRepo.FindByID(uint(userID))
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "用户不存在"})
+			return
+		}
+		
+		// 只允许为客户启用
+		if user.Role != "customer" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "只能为客户启用自动补定金功能"})
+			return
+		}
+		
+		// 更新自动补定金开关
+		if err := ctx.DB.Model(&model.User{}).Where("id = ?", userID).
+			Update("auto_supplement_enabled", req.Enabled).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新失败"})
+			return
+		}
+		
+		operatorID := c.GetUint("user_id")
+		statusText := "禁用"
+		if req.Enabled {
+			statusText = "启用"
+		}
+		
+		c.JSON(http.StatusOK, gin.H{
+			"message": fmt.Sprintf("已%s用户 %s 的自动补定金功能", statusText, user.Phone),
+			"user": map[string]interface{}{
+				"id":                      user.ID,
+				"phone":                   user.Phone,
+				"auto_supplement_enabled": req.Enabled,
+			},
+			"operator_id": operatorID,
 		})
 	})
 }

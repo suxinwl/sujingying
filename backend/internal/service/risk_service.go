@@ -242,7 +242,26 @@ func (s *RiskService) RunRiskCheck(currentPrice float64) error {
 		}
 	}
 
-	// 3. 发送高风险预警
+	// 3. 尝试自动补定金（针对所有预警订单）
+	autoSupplementSvc := NewAutoSupplementService(s.ctx)
+	autoSupplementCount := 0
+	
+	// 合并高风险和一般预警订单
+	allWarningOrders := append(result.HighRisk, result.Warning...)
+	
+	if len(allWarningOrders) > 0 {
+		log.Printf("[Risk] 🔄 检查自动补定金: %d 单订单", len(allWarningOrders))
+		for _, order := range allWarningOrders {
+			if autoSupplementSvc.CheckAndSupplementOrder(order.ID) {
+				autoSupplementCount++
+			}
+		}
+		if autoSupplementCount > 0 {
+			log.Printf("[Risk] ✅ 自动补定金完成: %d 单", autoSupplementCount)
+		}
+	}
+
+	// 4. 发送高风险预警（只对未自动补定金的订单）
 	if len(result.HighRisk) > 0 {
 		log.Printf("[Risk] ⚠️ 发现 %d 单高风险订单", len(result.HighRisk))
 		for _, order := range result.HighRisk {
@@ -252,7 +271,7 @@ func (s *RiskService) RunRiskCheck(currentPrice float64) error {
 		}
 	}
 
-	// 4. 发送一般预警
+	// 5. 发送一般预警（只对未自动补定金的订单）
 	if len(result.Warning) > 0 {
 		log.Printf("[Risk] ⚠️ 发现 %d 单需要预警", len(result.Warning))
 		for _, order := range result.Warning {
