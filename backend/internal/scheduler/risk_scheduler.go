@@ -55,22 +55,20 @@ func NewRiskScheduler(ctx *appctx.AppContext, intervalSeconds int, quoteHub serv
  * getCurrentMarketPrice 获取当前市场价格
  * 
  * 说明：
- * - 从QuoteService获取实时价格
- * - 支持多数据源fallback
- * - 如果API获取失败，使用模拟价格
+ * - 从QuoteService获取WebSocket实时价格
+ * - 仅使用真实数据，不使用任何模拟数据
+ * - 如果获取失败，返回0并在日志中记录错误
  * 
- * @return float64 - 当前市场价格（元/克）
+ * @return (float64, error) - 当前市场价格（元/克）和可能的错误
  */
-func (s *RiskScheduler) getCurrentMarketPrice() float64 {
-	// 从QuoteService获取价格
+func (s *RiskScheduler) getCurrentMarketPrice() (float64, error) {
 	price, err := s.quoteService.GetCurrentPrice()
 	if err != nil {
-		log.Printf("[RiskScheduler] ⚠️ 获取价格失败: %v，使用模拟价格", err)
-		// 使用模拟价格作为fallback
-		price = s.quoteService.SimulatePrice()
+		log.Printf("[RiskScheduler] ❌ 获取价格失败: %v", err)
+		return 0, err
 	}
 	
-	return price
+	return price, nil
 }
 
 /**
@@ -132,7 +130,12 @@ func (s *RiskScheduler) runCheck() {
 	log.Println("[RiskScheduler] ⏰ 开始执行风控检查...")
 
 	// 获取当前市场价格
-	currentPrice := s.getCurrentMarketPrice()
+	currentPrice, err := s.getCurrentMarketPrice()
+	if err != nil {
+		log.Printf("[RiskScheduler] ⚠️ 无法获取市场价格，跳过本次风控检查: %v", err)
+		log.Println("[RiskScheduler] 💡 请检查WebSocket行情连接状态")
+		return
+	}
 
 	// 执行风控检查
 	if err := s.riskService.RunRiskCheck(currentPrice); err != nil {
@@ -141,7 +144,7 @@ func (s *RiskScheduler) runCheck() {
 	}
 
 	elapsed := time.Since(startTime)
-	log.Printf("[RiskScheduler] ✅ 风控检查完成，耗时: %v", elapsed)
+	log.Printf("[RiskScheduler] ✅ 风控检查完成，当前价格: %.2f 元/克，耗时: %v", currentPrice, elapsed)
 }
 
 /**
@@ -162,9 +165,19 @@ func (s *RiskScheduler) Stop() {
  * @return map[string]interface{}
  */
 func (s *RiskScheduler) GetStatus() map[string]interface{} {
-	return map[string]interface{}{
-		"interval":      s.interval.String(),
-		"running":       s.ticker != nil,
-		"current_price": s.getCurrentMarketPrice(),
+	status := map[string]interface{}{
+		"interval": s.interval.String(),
+		"running":  s.ticker != nil,
 	}
+	
+	// 尝试获取当前价格
+	price, err := s.getCurrentMarketPrice()
+	if err != nil {
+		status["price_error"] = err.Error()
+		status["current_price"] = 0
+	} else {
+		status["current_price"] = price
+	}
+	
+	return status
 }
