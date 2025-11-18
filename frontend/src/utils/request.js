@@ -87,7 +87,9 @@ request.interceptors.response.use(
               `${API_BASE_URL}/api/v1/auth/refresh`,
               { refresh_token: refreshToken }
             )
-            const { access_token } = response.data.data
+            // 后端直接返回token对象
+            const tokenData = response.data.data || response.data
+            const { access_token } = tokenData
             localStorage.setItem('access_token', access_token)
             error.config.headers.Authorization = `Bearer ${access_token}`
             return request(error.config)
