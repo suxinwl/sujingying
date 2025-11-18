@@ -1,22 +1,43 @@
+/**
+ * HTTP请求工具
+ * 
+ * @module utils/request
+ * @description 基于axios封装的HTTP客户端，包含请求/响应拦截器和错误处理
+ * @author 速金盈技术团队
+ * @date 2025-11-18
+ */
+
 import axios from 'axios'
 import { showToast, showFailToast } from 'vant'
 import { API_BASE_URL } from '../config/api'
 import router from '../router'
 
-// 创建axios实例
+/**
+ * 创建axios实例
+ * 
+ * @constant
+ * @type {import('axios').AxiosInstance}
+ */
 const request = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000
 })
 
-// 请求拦截器
+/**
+ * 请求拦截器
+ * 
+ * @description 在请求发送前添加认证token
+ */
 request.interceptors.request.use(
   config => {
-    // 添加token
+    // 从localStorage获取token
     const token = localStorage.getItem('access_token')
+    
+    // 如果token存在，添加到请求头
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    
     return config
   },
   error => {
@@ -25,17 +46,21 @@ request.interceptors.request.use(
   }
 )
 
-// 响应拦截器
+/**
+ * 响应拦截器
+ * 
+ * @description 处理响应数据和错误，包含自动token刷新逻辑
+ */
 request.interceptors.response.use(
   response => {
     const res = response.data
     
-    // 如果是文件下载，直接返回
+    // 如果是文件下载，直接返回完整响应
     if (response.config.responseType === 'blob') {
       return response
     }
     
-    // 正常响应
+    // 正常响应，返回data
     return res
   },
   async error => {

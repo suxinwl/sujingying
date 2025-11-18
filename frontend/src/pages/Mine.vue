@@ -92,6 +92,14 @@
   </div>
 </template>
 
+/**
+ * 个人中心页面
+ * 
+ * @description 用户个人中心，包含用户信息展示、功能菜单、密码修改等功能
+ * @author 速金盈技术团队
+ * @date 2025-11-18
+ */
+
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -101,24 +109,45 @@ import request from '../utils/request'
 import { API_ENDPOINTS } from '../config/api'
 import { ROLE_TEXT } from '../utils/helpers'
 
+// ==================== 路由和状态管理 ====================
 const router = useRouter()
 const userStore = useUserStore()
 
+// ==================== 响应式数据 ====================
+/** @type {import('vue').Ref<number>} 未读通知数量 */
 const unreadCount = ref(0)
+
+/** @type {import('vue').Ref<boolean>} 是否显示修改密码对话框 */
 const showPasswordDialog = ref(false)
+
+/** @type {import('vue').Ref<any>} 密码表单引用 */
 const passwordFormRef = ref(null)
+
+/** @type {import('vue').Ref<{old_password: string, new_password: string, confirm_password: string}>} 密码表单数据 */
 const passwordForm = ref({
   old_password: '',
   new_password: '',
   confirm_password: ''
 })
 
-// 验证密码
+// ==================== 表单验证 ====================
+/**
+ * 验证密码是否一致
+ * 
+ * @returns {boolean} 两次输入的密码是否一致
+ */
 const validatePassword = () => {
   return passwordForm.value.confirm_password === passwordForm.value.new_password
 }
 
-// 获取未读通知数量
+// ==================== 数据加载 ====================
+/**
+ * 获取未读通知数量
+ * 
+ * @async
+ * @returns {Promise<void>}
+ * @description 从API获取未读通知的数量，用于显示消息角标
+ */
 const loadUnreadCount = async () => {
   try {
     const { data } = await request.get(API_ENDPOINTS.NOTIFICATIONS, {
@@ -130,46 +159,77 @@ const loadUnreadCount = async () => {
   }
 }
 
-// 修改密码
+// ==================== 事件处理 ====================
+/**
+ * 修改密码
+ * 
+ * @async
+ * @returns {Promise<void>}
+ * @description 验证并提交密码修改请求，成功后关闭对话框并清空表单
+ */
 const onChangePassword = async () => {
   try {
+    // 验证表单
     await passwordFormRef.value?.validate()
     
+    // 调用API修改密码
     await userStore.changePassword({
       old_password: passwordForm.value.old_password,
       new_password: passwordForm.value.new_password
     })
     
+    // 成功提示
     showToast('密码修改成功')
+    
+    // 重置表单
     passwordForm.value = {
       old_password: '',
       new_password: '',
       confirm_password: ''
     }
+    
+    // 关闭对话框
     showPasswordDialog.value = false
   } catch (error) {
     console.error('修改密码失败:', error)
   }
 }
 
-// 退出登录
+/**
+ * 退出登录
+ * 
+ * @async
+ * @returns {Promise<void>}
+ * @description 确认后退出登录，清除本地数据并跳转到登录页
+ */
 const onLogout = async () => {
   try {
+    // 显示确认对话框
     await showConfirmDialog({
       title: '确认退出',
       message: '确定要退出登录吗？'
     })
     
+    // 调用退出API
     await userStore.logout()
+    
+    // 跳转到登录页
     router.replace('/login')
+    
+    // 提示
     showToast('已退出登录')
   } catch (error) {
+    // 如果是取消操作，不处理
     if (error !== 'cancel') {
       console.error('退出登录失败:', error)
     }
   }
 }
 
+// ==================== 生命周期 ====================
+/**
+ * 组件挂载时执行
+ */
 onMounted(() => {
   loadUnreadCount()
 })
