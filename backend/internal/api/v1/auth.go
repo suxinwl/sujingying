@@ -21,8 +21,17 @@ type registerReq struct {
 }
 
 type loginReq struct {
-	Phone    string `json:"phone"`
+	Username string `json:"username"` // 兼容前端字段名（实际为手机号）
+	Phone    string `json:"phone"`    // 直接使用phone字段
 	Password string `json:"password"`
+}
+
+// GetPhone 获取手机号（优先使用phone，兼容username）
+func (r *loginReq) GetPhone() string {
+	if r.Phone != "" {
+		return r.Phone
+	}
+	return r.Username
 }
 
 type refreshReq struct {
@@ -88,9 +97,16 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
+		
+		phone := req.GetPhone()
+		if phone == "" || req.Password == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "手机号和密码不能为空"})
+			return
+		}
+		
 		ip := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
-		acc, ref, u, err := authSvc.Login(req.Phone, req.Password, ip, userAgent)
+		acc, ref, u, err := authSvc.Login(phone, req.Password, ip, userAgent)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			return
