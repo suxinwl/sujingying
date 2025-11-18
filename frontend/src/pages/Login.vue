@@ -68,11 +68,18 @@ const loading = ref(false)
 const onSubmit = async () => {
   try {
     loading.value = true
+    console.log('登录数据:', form.value)
     await userStore.login(form.value)
     showToast('登录成功')
     router.replace('/')
   } catch (error) {
     console.error('登录失败:', error)
+    // 显示具体错误信息
+    if (error.response?.data?.error) {
+      showToast(error.response.data.error)
+    } else {
+      showToast(error.message || '登录失败，请重试')
+    }
   } finally {
     loading.value = false
   }
