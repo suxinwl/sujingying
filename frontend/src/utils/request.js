@@ -60,7 +60,15 @@ request.interceptors.response.use(
       return response
     }
     
-    // 正常响应，返回data
+    // 统一处理响应格式
+    // 后端统一返回 {data: {...}}
+    // 如果响应有data字段，直接返回data内容
+    // 如果没有data字段，返回整个响应（兼容旧格式）
+    if (res && typeof res === 'object' && 'data' in res) {
+      return res.data
+    }
+    
+    // 兼容旧格式（直接返回数据）
     return res
   },
   async error => {
@@ -87,7 +95,7 @@ request.interceptors.response.use(
               `${API_BASE_URL}/api/v1/auth/refresh`,
               { refresh_token: refreshToken }
             )
-            // 后端直接返回token对象
+            // 后端统一返回 {data: {access_token, refresh_token}}
             const tokenData = response.data.data || response.data
             const { access_token } = tokenData
             localStorage.setItem('access_token', access_token)

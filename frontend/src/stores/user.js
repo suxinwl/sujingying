@@ -113,10 +113,8 @@ export const useUserStore = defineStore('user', {
      * @description 提交登录请求，保存token，并获取用户信息
      */
     async login(credentials) {
-      const response = await request.post(API_ENDPOINTS.LOGIN, credentials)
-      
-      // 后端直接返回token对象，不包装在data字段中
-      const data = response.data || response
+      // 响应拦截器已统一处理data字段
+      const data = await request.post(API_ENDPOINTS.LOGIN, credentials)
       
       // 保存token到状态和localStorage
       this.token = data.access_token
@@ -144,8 +142,7 @@ export const useUserStore = defineStore('user', {
      * @description 提交注册请求，需等待审核
      */
     async register(userData) {
-      const response = await request.post(API_ENDPOINTS.REGISTER, userData)
-      return response.data || response
+      return await request.post(API_ENDPOINTS.REGISTER, userData)
     },
     
     /**
@@ -156,8 +153,7 @@ export const useUserStore = defineStore('user', {
      * @description 从API获取当前登录用户的详细信息
      */
     async getUserInfo() {
-      const response = await request.get(API_ENDPOINTS.USER_PROFILE)
-      const data = response.data || response
+      const data = await request.get(API_ENDPOINTS.USER_PROFILE)
       this.userInfo = data
       return data
     },
@@ -171,8 +167,7 @@ export const useUserStore = defineStore('user', {
      * @description 更新用户个人信息，并合并到本地状态
      */
     async updateUserInfo(userData) {
-      const response = await request.put(API_ENDPOINTS.USER_UPDATE, userData)
-      const data = response.data || response
+      const data = await request.put(API_ENDPOINTS.USER_UPDATE, userData)
       this.userInfo = { ...this.userInfo, ...data }
       return data
     },
@@ -188,8 +183,7 @@ export const useUserStore = defineStore('user', {
      * @description 提交密码修改请求
      */
     async changePassword(passwordData) {
-      const response = await request.post(API_ENDPOINTS.CHANGE_PASSWORD, passwordData)
-      return response.data || response
+      return await request.post(API_ENDPOINTS.CHANGE_PASSWORD, passwordData)
     },
     
     /**

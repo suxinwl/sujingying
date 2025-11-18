@@ -12,6 +12,7 @@ import (
 	"suxin/internal/repository"
 	"suxin/internal/service"
 	"suxin/internal/pkg/security"
+	"suxin/internal/pkg/response"
 )
 
 type registerReq struct {
@@ -94,13 +95,13 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	rg.POST("/auth/login", func(c *gin.Context) {
 		var req loginReq
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			response.BadRequest(c, "invalid request")
 			return
 		}
 		
 		phone := req.GetPhone()
 		if phone == "" || req.Password == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "手机号和密码不能为空"})
+			response.BadRequest(c, "手机号和密码不能为空")
 			return
 		}
 		
@@ -108,28 +109,37 @@ func RegisterAuthRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		userAgent := c.GetHeader("User-Agent")
 		acc, ref, u, err := authSvc.Login(phone, req.Password, ip, userAgent)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			response.Unauthorized(c, err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{
+		
+		// 使用统一的data格式
+		response.Success(c, gin.H{
 			"access_token":  acc,
 			"refresh_token": ref,
-			"user": gin.H{"id": u.ID, "phone": u.Phone, "role": u.Role},
+			"user": gin.H{
+				"id":    u.ID,
+				"phone": u.Phone,
+				"role":  u.Role,
+			},
 		})
 	})
 
 	rg.POST("/auth/refresh", func(c *gin.Context) {
 		var req refreshReq
 		if err := c.ShouldBindJSON(&req); err != nil || req.RefreshToken == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			response.BadRequest(c, "invalid request")
 			return
 		}
 		acc, ref, err := authSvc.Refresh(req.RefreshToken)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+			response.Unauthorized(c, err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"access_token": acc, "refresh_token": ref})
+		response.Success(c, gin.H{
+			"access_token":  acc,
+			"refresh_token": ref,
+		})
 	})
 
 	// 登出：无状态，直接200
