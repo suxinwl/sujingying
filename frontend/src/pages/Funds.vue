@@ -21,6 +21,10 @@
           <div class="label">持单定金</div>
           <div class="amount">¥{{ formatMoney(holdingMargin) }}</div>
         </div>
+        <div class="balance-item">
+          <div class="label">待退定金</div>
+          <div class="amount">¥{{ formatMoney(pendingRefundDeposit) }}</div>
+        </div>
       </div>
       
       <div class="actions">
@@ -38,7 +42,7 @@
       <van-tab title="全部" name="all" />
       <van-tab title="付定金" name="deposit" />
       <van-tab title="退定金" name="withdraw" />
-      <van-tab title="交易" name="trade" />
+      <van-tab title="补定金" name="trade" />
     </van-tabs>
     
     <van-pull-refresh v-model="refreshing" @refresh="onRefresh">
@@ -48,12 +52,33 @@
         finished-text="没有更多了"
         @load="loadRecords"
       >
-        <div v-if="records.length === 0" class="empty">
-          <van-empty description="暂无记录" />
+        <template v-if="activeTab === 'trade'">
+          <div class="trade-filters">
+            <div class="trade-type-tabs">
+              <div
+                class="trade-type-tab trade-type-long"
+                :class="{ active: tradeType === 'long_buy' }"
+                @click="tradeType = 'long_buy'"
+              >
+                锁价买料
+              </div>
+              <div
+                class="trade-type-tab trade-type-short"
+                :class="{ active: tradeType === 'short_sell' }"
+                @click="tradeType = 'short_sell'"
+              >
+                锁价卖料
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <div v-if="visibleRecords.length === 0" class="empty">
+          <van-empty :description="activeTab === 'trade' ? '暂无补定金记录' : '暂无记录'" />
         </div>
         
         <div 
-          v-for="record in records" 
+          v-for="record in visibleRecords" 
           :key="record.id" 
           class="record-card"
           @click="showRecordDetail(record)"
@@ -72,7 +97,7 @@
             >
               {{
                 record.type === 'trade'
-                  ? '交易-' + getOrderTypeText(record.order?.type)
+                  ? '补定金-' + getOrderTypeText(record.order?.type)
                   : getRecordTypeText(record.type)
               }}
             </div>
@@ -98,20 +123,51 @@
               <span class="label">
                 {{ record.type === 'deposit' ? '充值金额' : (record.type === 'trade' ? '定金' : '金额') }}
               </span>
-              <span class="value amount-text" :class="{ income: record.amount > 0, expense: record.amount < 0 }">
-                {{ record.amount > 0 ? '+' : '' }}¥{{ formatMoney(Math.abs(record.amount)) }}
-              </span>
-            </div>
-            <div class="record-info-row" v-if="record.type === 'trade' && record.order">
-              <span class="label">浮动盈亏</span>
               <span
                 class="value amount-text"
                 :class="{
-                  income: calcOrderPnl(record.order) > 0,
-                  expense: calcOrderPnl(record.order) < 0
+                  income: getRecordAmountDisplay(record) > 0,
+                  expense: getRecordAmountDisplay(record) < 0
                 }"
               >
-                {{ calcOrderPnl(record.order) > 0 ? '+' : '' }}¥{{ formatMoney(Math.abs(calcOrderPnl(record.order))) }}
+                {{
+                  getRecordAmountDisplay(record) > 0
+                    ? '+'
+                    : getRecordAmountDisplay(record) < 0
+                      ? '-'
+                      : ''
+                }}¥{{ formatMoney(Math.abs(getRecordAmountDisplay(record))) }}
+              </span>
+            </div>
+            <div
+              class="record-info-row"
+              v-if="record.type === 'trade' && record.order && getSupplementDepositDisplay(record.order) > 0"
+            >
+              <span class="label">已补定金</span>
+              <span class="value">¥{{ formatMoney(getSupplementDepositDisplay(record.order)) }}</span>
+            </div>
+            <div class="record-info-row" v-if="record.type === 'trade' && record.order">
+              <span class="label">{{ isOrderHolding(record.order) ? '浮动盈亏' : '结算盈亏' }}</span>
+              <span
+                class="value amount-text"
+                :class="{
+                  income: getTradeRecordPnl(record) > 0,
+                  expense: getTradeRecordPnl(record) < 0
+                }"
+              >
+                {{
+                  getTradeRecordPnl(record) > 0
+                    ? '+'
+                    : getTradeRecordPnl(record) < 0
+                      ? '-'
+                      : ''
+                }}¥{{ formatMoney(Math.abs(getTradeRecordPnl(record))) }}
+              </span>
+            </div>
+            <div class="record-info-row" v-if="record.type === 'trade' && record.order">
+              <span class="label">需补定金</span>
+              <span class="value">
+                ¥{{ formatMoney(calcOrderNeedSupplement(record.order)) }}
               </span>
             </div>
             <div class="record-info-row" v-if="record.type === 'deposit'">
@@ -129,6 +185,47 @@
           </div>
           
           <div class="record-card-footer">
+            <div
+              v-if="record.type === 'trade' && record.order"
+              class="record-actions"
+            >
+              <van-button
+                v-if="calcOrderNeedSupplement(record.order) > 0"
+                size="small"
+                type="warning"
+                plain
+                @click.stop="onClickSupplement(record.order)"
+              >
+                补定金
+              </van-button>
+              <van-button
+                v-if="isOrderHolding(record.order)"
+                size="small"
+                type="primary"
+                @click.stop="openSettleDialog(record.order)"
+              >
+                结算
+              </van-button>
+              <van-button
+                size="small"
+                type="default"
+                @click.stop="openTradeDetail(record.order)"
+              >
+                查看料单
+              </van-button>
+            </div>
+            <div
+              v-else-if="(['supplement_deposit', 'supplement'].includes((record.type || '').toLowerCase())) && record.order_id"
+              class="record-actions"
+            >
+              <van-button
+                size="small"
+                type="default"
+                @click.stop="openTradeDetail(record)"
+              >
+                查看料单
+              </van-button>
+            </div>
             <span class="view-detail">查看详情 ></span>
           </div>
         </div>
@@ -398,11 +495,31 @@
               />
               <van-cell
                 title="定金"
-                :value="'¥' + formatMoney(currentDetailRecord.order?.deposit)"
+                :value="'¥' + formatMoney(getBaseDeposit(currentDetailRecord.order))"
               />
               <van-cell
-                title="浮动盈亏"
-                :value="(calcOrderPnl(currentDetailRecord.order) > 0 ? '+' : '') + '¥' + formatMoney(Math.abs(calcOrderPnl(currentDetailRecord.order)))"
+                title="已补定金"
+                :value="'¥' + formatMoney(getSupplementDepositDisplay(currentDetailRecord.order))"
+              />
+              <van-cell
+                :title="isOrderHolding(currentDetailRecord.order) ? '浮动盈亏' : '结算盈亏'"
+                :value="
+                  (getOrderDisplayPnl(currentDetailRecord.order) > 0
+                    ? '+'
+                    : getOrderDisplayPnl(currentDetailRecord.order) < 0
+                      ? '-'
+                      : '') +
+                  '¥' +
+                  formatMoney(Math.abs(getOrderDisplayPnl(currentDetailRecord.order)))
+                "
+                :class="{
+                  'pnl-profit-cell': getOrderDisplayPnl(currentDetailRecord.order) > 0,
+                  'pnl-loss-cell': getOrderDisplayPnl(currentDetailRecord.order) < 0
+                }"
+              />
+              <van-cell
+                title="需补定金"
+                :value="'¥' + formatMoney(calcOrderNeedSupplement(currentDetailRecord.order))"
               />
               <van-cell
                 title="定金率"
@@ -462,6 +579,39 @@
               />
             </template>
           </van-cell-group>
+          <div
+            v-if="currentDetailRecord.type === 'trade' && currentDetailRecord.order"
+            class="detail-actions"
+          >
+            <van-button
+              v-if="calcOrderNeedSupplement(currentDetailRecord.order) > 0"
+              type="warning"
+              block
+              size="small"
+              @click="onClickSupplement(currentDetailRecord.order)"
+            >
+              补定金
+            </van-button>
+            <van-button
+              v-if="isOrderHolding(currentDetailRecord.order)"
+              type="primary"
+              block
+              size="small"
+              style="margin-top: 8px;"
+              @click="openSettleDialog(currentDetailRecord.order)"
+            >
+              结算
+            </van-button>
+            <van-button
+              type="default"
+              block
+              size="small"
+              style="margin-top: 8px;"
+              @click="openTradeDetail(currentDetailRecord.order)"
+            >
+              查看料单
+            </van-button>
+          </div>
           
           <!-- 支付凭证 -->
           <div v-if="currentDetailRecord.voucher_url" class="voucher-section">
@@ -481,6 +631,105 @@
         </div>
       </div>
     </van-popup>
+
+    <!-- 锁价订单详情弹窗（查看料单） -->
+    <van-popup v-model:show="showTradeDetailDialog" position="bottom" round :style="{ height: '80%' }">
+      <div class="detail-popup" v-if="currentDetailOrder">
+        <van-nav-bar
+          :title="getOrderTypeText(currentDetailOrder.type) + '订单详情'"
+          left-arrow
+          @click-left="showTradeDetailDialog = false"
+        />
+
+        <div class="detail-content">
+          <van-cell-group inset>
+            <van-cell
+              title="订单号"
+              :value="'#' + (currentDetailOrder.order_id || currentDetailOrder.id)"
+            />
+            <van-cell
+              title="订单类型"
+              :value="getOrderTypeText(currentDetailOrder.type)"
+            />
+            <van-cell
+              title="订单状态"
+              :value="getStatusText(currentDetailOrder.status)"
+            />
+            <van-cell
+              title="锁定单价"
+              :value="'¥' + formatMoney(currentDetailOrder.locked_price || 0) + ' /克'"
+            />
+            <van-cell
+              title="锁定货款"
+              :value="'¥' + formatMoney((currentDetailOrder.locked_price || 0) * (currentDetailOrder.weight_g || 0))"
+            />
+            <van-cell
+              title="当前价格"
+              :value="'¥' + formatMoney(calcOrderCurrentPrice(currentDetailOrder)) + ' /克'"
+            />
+            <van-cell
+              title="克重"
+              :value="(currentDetailOrder.weight_g || 0) + ' 克'"
+            />
+            <van-cell
+              title="定金"
+              :value="'¥' + formatMoney(getBaseDeposit(currentDetailOrder))"
+            />
+            <van-cell
+              title="已补定金"
+              :value="'¥' + formatMoney(getSupplementDepositDisplay(currentDetailOrder))"
+            />
+            <van-cell
+              :title="isOrderHolding(currentDetailOrder) ? '浮动盈亏' : '结算盈亏'"
+              :value="
+                (getOrderDisplayPnl(currentDetailOrder) > 0
+                  ? '+'
+                  : getOrderDisplayPnl(currentDetailOrder) < 0
+                    ? '-'
+                    : '') +
+                '¥' +
+                formatMoney(Math.abs(getOrderDisplayPnl(currentDetailOrder)))
+              "
+              :class="{
+                'pnl-profit-cell': getOrderDisplayPnl(currentDetailOrder) > 0,
+                'pnl-loss-cell': getOrderDisplayPnl(currentDetailOrder) < 0
+              }"
+            />
+            <van-cell
+              title="需补定金"
+              :value="'¥' + formatMoney(calcOrderNeedSupplement(currentDetailOrder))"
+            />
+            <van-cell
+              title="定金率"
+              :value="
+                calcOrderMarginRate(currentDetailOrder) !== null
+                  ? calcOrderMarginRate(currentDetailOrder).toFixed(2) + '%'
+                  : '-'
+              "
+            />
+            <van-cell
+              title="创建时间"
+              :value="formatDateTime(currentDetailOrder.created_at)"
+            />
+          </van-cell-group>
+        </div>
+      </div>
+    </van-popup>
+
+    <!-- 订单结算弹窗 -->
+    <van-dialog
+      v-model:show="showSettleDialog"
+      title="结算订单"
+      show-cancel-button
+      @confirm="confirmSettle"
+    >
+      <van-field
+        v-model="settlePayPassword"
+        label="支付密码"
+        type="password"
+        placeholder="请输入支付密码"
+      />
+    </van-dialog>
   </div>
 </template>
 
@@ -503,6 +752,8 @@ const userInfo = ref({
   available_deposit: 0,
   used_deposit: 0
 })
+
+const pendingRefundDeposit = ref(0)
 
 const quoteStore = useQuoteStore()
 const holdingOrders = ref([])
@@ -533,12 +784,59 @@ const calcOrderPnl = (order) => {
   return 0
 }
 
+// 基础定金：按业务约定为 交易克重 × 10 元
+const getBaseDeposit = (order) => {
+  if (!order) return 0
+  const weight = order.weight_g ?? order.WeightG ?? 0
+  return weight * 10
+}
+
+// 已补定金 = 当前订单定金 - 基础定金（小于0按0处理）
+const getSupplementDepositDisplay = (order) => {
+  if (!order) return 0
+  const total = order.deposit ?? order.Deposit ?? 0
+  const base = getBaseDeposit(order)
+  const extra = total - base
+  return extra > 0 ? extra : 0
+}
+
+// 列表中“金额/定金”展示专用：
+// - 交易记录: 使用基础定金
+// - 其他记录: 使用原始金额
+const getRecordAmountDisplay = (record) => {
+  if (!record) return 0
+  if (record.type === 'trade' && record.order) {
+    return getBaseDeposit(record.order)
+  }
+  return record.amount || 0
+}
+
 const calcOrderMarginRate = (order) => {
   if (!order) return null
-  const deposit = order.deposit || 0
-  if (!deposit) return null
-  const pnl = calcOrderPnl(order)
-  return ((deposit + pnl) / deposit) * 100
+  const base = getBaseDeposit(order)
+  if (!base) return null
+
+  const extra = getSupplementDepositDisplay(order)
+
+  // 盈利：
+  // - 持仓：按当前价计算浮动盈亏
+  // - 已结算/已平仓：优先使用 settled_pnl / SettledPnL，其次回退到 pnl_float / PnLFloat
+  const rawStatus = order.status || order.Status || ''
+  const status = String(rawStatus).toLowerCase()
+  let pnl = 0
+  if (status === 'holding') {
+    pnl = calcOrderPnl(order)
+  } else if (status === 'settled' || status === 'closed') {
+    if (typeof order.settled_pnl === 'number') pnl = order.settled_pnl
+    else if (typeof order.SettledPnL === 'number') pnl = order.SettledPnL
+    else if (typeof order.pnl_float === 'number') pnl = order.pnl_float
+    else if (typeof order.PnLFloat === 'number') pnl = order.PnLFloat
+  } else {
+    pnl = calcOrderPnl(order)
+  }
+
+  // 定金率 = (定金 + 已补定金 + 盈利) / 定金 × 100%
+  return ((base + extra + pnl) / base) * 100
 }
 
 const holdingMargin = computed(() => {
@@ -552,8 +850,139 @@ const holdingMargin = computed(() => {
 
 const totalDeposit = computed(() => {
   const available = userInfo.value.available_deposit || 0
-  return available + holdingMargin.value
+  const pendingRefund = pendingRefundDeposit.value || 0
+  return available + holdingMargin.value + pendingRefund
 })
+
+// 目标定金率（百分比），默认100，可通过系统配置 auto_supplement_target 覆盖
+const targetMarginRate = ref(100)
+
+const tradeType = ref('long_buy')
+const tradeStatus = ref('holding')
+
+const tradeRecords = computed(() => {
+  if (activeTab.value !== 'trade') return []
+  return records.value.filter((r) => {
+    const t = (r.type || '').toLowerCase()
+    if (t !== 'supplement_deposit' && t !== 'supplement') return false
+
+    // 按锁价买料 / 锁价卖料过滤（如资金流水中包含订单方向）
+    const otRaw = (r.order_type || '').toLowerCase()
+    if (!otRaw || !tradeType.value) return true
+
+    // 兼容 buy/sell 与 long_buy/short_sell
+    const ot =
+      otRaw === 'buy' ? 'long_buy' : otRaw === 'sell' ? 'short_sell' : otRaw
+
+    return ot === tradeType.value
+  })
+})
+
+const visibleRecords = computed(() => {
+  if (activeTab.value === 'trade') {
+    return tradeRecords.value
+  }
+  return records.value
+})
+
+const getTradeRecordPnl = (record) => {
+  if (!record || !record.order) return 0
+  const order = record.order
+  const rawStatus = order.status || order.Status || ''
+  const status = String(rawStatus).toLowerCase()
+  if (status === 'holding') {
+    return calcOrderPnl(order)
+  }
+  if (status === 'settled' || status === 'closed') {
+    if (typeof order.settled_pnl === 'number') return order.settled_pnl
+    if (typeof order.SettledPnL === 'number') return order.SettledPnL
+    if (typeof order.pnl_float === 'number') return order.pnl_float
+    if (typeof order.PnLFloat === 'number') return order.PnLFloat
+  }
+  return 0
+}
+
+const getOrderDisplayPnl = (order) => {
+  if (!order) return 0
+  const rawStatus = order.status || order.Status || ''
+  const status = String(rawStatus).toLowerCase()
+  if (status === 'holding') {
+    return calcOrderPnl(order)
+  }
+  if (status === 'settled' || status === 'closed') {
+    if (typeof order.settled_pnl === 'number') return order.settled_pnl
+    if (typeof order.SettledPnL === 'number') return order.SettledPnL
+    if (typeof order.pnl_float === 'number') return order.pnl_float
+    if (typeof order.PnLFloat === 'number') return order.PnLFloat
+  }
+  return 0
+}
+
+const tradeTotalWeight = computed(() => {
+  if (activeTab.value !== 'trade') return 0
+  return tradeRecords.value.reduce((sum, record) => {
+    const order = record.order || {}
+    const weight = order.weight_g ?? order.WeightG ?? 0
+    return sum + weight
+  }, 0)
+})
+
+const tradeAvgLockedPrice = computed(() => {
+  if (activeTab.value !== 'trade') return 0
+  const list = tradeRecords.value
+  if (!list.length) return 0
+  const totalWeight = list.reduce((sum, record) => {
+    const order = record.order || {}
+    const weight = order.weight_g ?? order.WeightG ?? 0
+    return sum + weight
+  }, 0)
+  if (!totalWeight) return 0
+  const totalLocked = list.reduce((sum, record) => {
+    const order = record.order || {}
+    const locked = order.locked_price ?? order.LockedPrice ?? 0
+    const weight = order.weight_g ?? order.WeightG ?? 0
+    return sum + locked * weight
+  }, 0)
+  return totalLocked / totalWeight
+})
+
+const tradeTotalPnlDisplay = computed(() => {
+  if (activeTab.value !== 'trade') return 0
+  return tradeRecords.value.reduce((sum, record) => sum + getTradeRecordPnl(record), 0)
+})
+
+const calcOrderNeedSupplement = (order) => {
+  if (!order) return 0
+  const base = getBaseDeposit(order)
+  if (!base) return 0
+
+  const rawStatus = order.status || order.Status || ''
+  const status = String(rawStatus).toLowerCase()
+  if (status !== 'holding') return 0
+
+  const rate = calcOrderMarginRate(order) ?? 0
+  const targetRate = targetMarginRate.value || 100
+  if (rate >= targetRate) return 0
+
+  // ΔA = 定金 / 100 × (R_target - R)
+  const delta = (base * (targetRate - rate)) / 100
+  return delta > 0 ? delta : 0
+}
+
+const tradeTotalNeedSupplement = computed(() => {
+  if (activeTab.value !== 'trade') return 0
+  return tradeRecords.value.reduce((sum, record) => {
+    const order = record.order || {}
+    return sum + calcOrderNeedSupplement(order)
+  }, 0)
+})
+
+const isOrderHolding = (order) => {
+  if (!order) return false
+  const rawStatus = order.status || order.Status || ''
+  const status = String(rawStatus).toLowerCase()
+  return status === 'holding'
+}
 
 const getOrderTypeText = (type) => {
   if (type === 'long_buy') return '锁价买料'
@@ -577,6 +1006,50 @@ const loadHoldingOrders = async () => {
     }))
   } catch (error) {
     console.error('加载持仓订单失败:', error)
+  }
+}
+
+const loadPendingRefundDeposit = async () => {
+  try {
+    const data = await request.get(API_ENDPOINTS.WITHDRAWS, {
+      params: {
+        limit: 100,
+        offset: 0
+      }
+    })
+    const list = data.withdraws || data.list || []
+    const sum = list.reduce((total, w) => {
+      const status = String(w.status || w.Status || '').toLowerCase()
+      if (status === 'approved') {
+        const amount = w.amount ?? w.Amount ?? 0
+        return total + (amount || 0)
+      }
+      return total
+    }, 0)
+    pendingRefundDeposit.value = sum
+  } catch (error) {
+    console.error('加载待退定金失败:', error)
+  }
+}
+
+// 加载目标定金率(%)，来自系统配置 auto_supplement_target
+const loadTargetMarginRate = async () => {
+  try {
+    const data = await request.get(API_ENDPOINTS.CONFIG)
+    const list = data.configs || data.list || []
+    const item = list.find((c) => {
+      const key = c.key || c.Key || ''
+      return key === 'auto_supplement_target'
+    })
+    if (item) {
+      const raw = item.value || item.Value || ''
+      const num = parseFloat(raw)
+      if (!Number.isNaN(num) && num > 0) {
+        targetMarginRate.value = num
+      }
+    }
+  } catch (error) {
+    console.error('加载目标定金率失败:', error)
   }
 }
 
@@ -623,18 +1096,23 @@ const agreeProtocol = ref(false)
 const showDepositDetailDialog = ref(false)
 const currentDetailRecord = ref(null)
 
+// 锁价订单详情（查看料单）
+const showTradeDetailDialog = ref(false)
+const currentDetailOrder = ref(null)
+
 // 获取记录类型文本
 const getRecordTypeText = (type) => {
   const types = {
     deposit: '付定金',
     withdraw: '退定金',
-    trade: '交易',
+    trade: '补定金',
     buy: '买入',
     sell: '卖出',
     profit: '盈利',
     loss: '亏损',
     commission: '提成',
-    supplement_deposit: '补交定金'
+    supplement_deposit: '补定金',
+    supplement: '补定金'
   }
   return types[type] || type
 }
@@ -743,6 +1221,42 @@ const showRecordDetail = (record) => {
   // 显示详情对话框
   showDepositDetailDialog.value = true
   currentDetailRecord.value = record
+}
+
+// 查看料单：从交易记录或补定金流水中单独查看锁价订单详情
+const openTradeDetail = async (source) => {
+  if (!source) return
+
+  // 直接传入订单对象的情况（交易记录）
+  if (source.locked_price !== undefined && source.weight_g !== undefined) {
+    currentDetailOrder.value = source
+    showTradeDetailDialog.value = true
+    return
+  }
+
+  // 补定金流水：通过 order_id 拉取订单详情
+  const orderId = source.order_id || source.OrderID || source.id
+  if (!orderId) return
+
+  try {
+    const detail = await request.get(API_ENDPOINTS.ORDER_DETAIL.replace(':id', orderId))
+    const raw = detail.order || detail || {}
+    currentDetailOrder.value = {
+      order_id: raw.order_id || raw.OrderID || raw.id || '',
+      type: raw.type || raw.Type || '',
+      status: raw.status || raw.Status || '',
+      locked_price: raw.locked_price ?? raw.LockedPrice ?? 0,
+      weight_g: raw.weight_g ?? raw.WeightG ?? 0,
+      deposit: raw.deposit ?? raw.Deposit ?? 0,
+      pnl_float: raw.pnl_float ?? raw.PnLFloat ?? 0,
+      settled_pnl: raw.settled_pnl ?? raw.SettledPnL ?? 0,
+      created_at: raw.created_at || raw.CreatedAt || null
+    }
+    showTradeDetailDialog.value = true
+  } catch (error) {
+    console.error('加载订单详情失败:', error)
+    showToast('加载料单详情失败')
+  }
 }
 
 // 将后端存储的图片字段解析为 URL 列表
@@ -899,35 +1413,70 @@ const loadRecords = async () => {
         voucher_url: w.VoucherURL || w.voucher_url,
         description: w.UserNote || w.user_note || w.ReviewNote || w.review_note || ''
       }))
-    } else if (activeTab.value === 'trade') {
-      // 加载持仓订单作为交易列表
-      await loadHoldingOrders()
-      list = holdingOrders.value.map(order => ({
-        id: order.order_id,
-        type: 'trade',
-        amount: order.deposit || 0,
-        status: order.status || 'holding',
-        created_at: order.created_at,
-        order
-      }))
     } else {
       // 加载所有资金流水
       const data = await request.get(API_ENDPOINTS.FUND_FLOW)
       const logs = data.logs || []
-      
-      list = logs.map(log => ({
+
+      const mapped = logs.map((log) => ({
         id: log.ID || log.id,
         type: log.Type || log.type,
         amount: log.Amount || log.amount,
         before_balance: log.AvailableBefore || log.available_before,
         after_balance: log.AvailableAfter || log.available_after,
         created_at: log.CreatedAt || log.created_at,
-        description: log.Note || log.note || ''
+        description: log.Note || log.note || '',
+        // 可能存在的订单关联字段
+        order_id: log.OrderID || log.order_id || log.OrderId || '',
+        order_type: log.OrderType || log.order_type || log.OrderSide || log.order_side || ''
       }))
+
+      if (activeTab.value === 'trade') {
+        // 补定金 Tab：仅展示补定金类流水
+        list = mapped.filter((log) => {
+          const t = (log.type || '').toLowerCase()
+          return t === 'supplement_deposit' || t === 'supplement'
+        })
+      } else {
+        list = mapped
+      }
     }
     
     console.log('加载的记录:', list)
     records.value = list
+
+    // 在补定金 Tab 中，为补定金流水按需补充订单方向（order_type），用于锁价买料/卖料筛选
+    if (activeTab.value === 'trade') {
+      const tasks = records.value
+        .filter((r) => {
+          const t = (r.type || '').toLowerCase()
+          return (
+            (t === 'supplement_deposit' || t === 'supplement') &&
+            !r.order_type &&
+            r.order_id
+          )
+        })
+        .map(async (r) => {
+          try {
+            const detail = await request.get(
+              API_ENDPOINTS.ORDER_DETAIL.replace(':id', r.order_id)
+            )
+            const raw = detail.order || detail || {}
+            r.order_type = raw.type || raw.Type || ''
+          } catch (error) {
+            console.error('补定金流水加载订单方向失败:', error)
+          }
+        })
+
+      if (tasks.length > 0) {
+        try {
+          await Promise.all(tasks)
+        } catch (e) {
+          // 单条失败不影响整体
+        }
+      }
+    }
+
     finished.value = true
   } catch (error) {
     console.error('加载资金流水失败:', error)
@@ -1078,6 +1627,88 @@ const onRefresh = () => {
   page.value = 1
   finished.value = false
   loadRecords()
+  loadUserInfo()
+  loadPendingRefundDeposit()
+}
+
+const onClickSupplement = async (order) => {
+  if (!order) return
+  const amount = calcOrderNeedSupplement(order)
+  if (!amount) {
+    showToast('当前订单无需补定金')
+    return
+  }
+
+  try {
+    await showDialog({
+      title: '确认补定金',
+      message: `该订单需补定金：¥${formatMoney(amount)}，是否立即从可用定金中补充？`,
+      showCancelButton: true
+    })
+  } catch (error) {
+    // 取消
+    return
+  }
+
+  try {
+    loading.value = true
+    await request.post(API_ENDPOINTS.SUPPLEMENTS, {
+      order_id: order.db_id || order.ID || order.id,
+      amount: amount
+    })
+    showToast('补定金成功')
+    loadUserInfo()
+    onRefresh()
+  } catch (error) {
+    console.error('补定金失败:', error)
+    const msg = error.response?.data?.error || error.response?.data?.message || '补定金失败'
+    showToast(msg)
+  } finally {
+    loading.value = false
+  }
+}
+
+const showSettleDialog = ref(false)
+const settleOrder = ref(null)
+const settlePayPassword = ref('')
+
+const openSettleDialog = (order) => {
+  if (!order) return
+  settleOrder.value = order
+  settlePayPassword.value = ''
+  showSettleDialog.value = true
+}
+
+const confirmSettle = async () => {
+  if (!settleOrder.value) return
+  const order = settleOrder.value
+  const price = calcOrderCurrentPrice(order)
+  if (!price) {
+    showToast('当前价格不可用，暂时无法结算')
+    return
+  }
+
+  try {
+    loading.value = true
+    await request.post(
+      API_ENDPOINTS.ORDER_SETTLE.replace(':id', order.order_id || order.OrderID || ''),
+      {
+        settle_price: price,
+        pay_password: settlePayPassword.value
+      }
+    )
+    showToast('结算成功')
+    showSettleDialog.value = false
+    settleOrder.value = null
+    loadUserInfo()
+    onRefresh()
+  } catch (error) {
+    console.error('结算失败:', error)
+    const msg = error.response?.data?.error || error.response?.data?.message || '结算失败'
+    showToast(msg)
+  } finally {
+    loading.value = false
+  }
 }
 
 // 加载收款信息
@@ -1099,6 +1730,8 @@ onMounted(() => {
   loadRecords()
   loadBankCards()
   loadPaymentInfo()
+  loadPendingRefundDeposit()
+  loadTargetMarginRate()
 })
 </script>
 
@@ -1292,18 +1925,120 @@ onMounted(() => {
 }
 
 .record-card-footer {
-  text-align: right;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding-top: 8px;
   border-top: 1px solid #f0f0f0;
 }
 
+.record-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
 .view-detail {
-  color: #1989fa;
   font-size: 13px;
+  color: #666;
+  text-align: right;
+  color: #999;
+  font-size: 12px;
 }
 
 .popup-content {
   padding: 20px;
+}
+
+.trade-filters {
+  padding: 8px 12px 0;
+}
+
+.trade-type-tabs,
+.trade-status-tabs {
+  display: flex;
+  background: #fff;
+  border-radius: 16px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.trade-type-tab,
+.trade-status-tab {
+  flex: 1;
+  text-align: center;
+  padding: 6px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.trade-type-tab.active,
+.trade-status-tab.active {
+  background: #1989fa;
+  color: #fff;
+  font-weight: 500;
+}
+
+/* 补定金 Tab：锁价买料 / 锁价卖料 激活色 */
+.trade-type-long.active {
+  background: #f56c6c;
+  color: #fff;
+}
+
+.trade-type-short.active {
+  background: #67c23a;
+  color: #fff;
+}
+
+.trade-summary-card {
+  margin: 0 12px 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  display: flex;
+  justify-content: space-between;
+}
+
+.trade-summary-item {
+  flex: 1;
+  text-align: center;
+}
+
+.trade-summary-item .label {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 4px;
+}
+
+.trade-summary-item .value {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.trade-summary-item .value.profit {
+  color: #f56c6c;
+}
+
+.trade-summary-item .value.loss {
+  color: #67c23a;
+}
+
+.record-actions {
+  display: inline-flex;
+  gap: 8px;
+  margin-right: 8px;
+}
+
+.detail-actions {
+  margin: 16px 16px 0;
+}
+
+.pnl-profit-cell .van-cell__value {
+  color: #f56c6c;
+}
+
+.pnl-loss-cell .van-cell__value {
+  color: #67c23a;
 }
 
 .record-item {

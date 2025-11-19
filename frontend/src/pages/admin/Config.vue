@@ -30,6 +30,63 @@
           label="交割手续费(元/克)"
           placeholder="请输入交割手续费"
         />
+        <van-field
+          v-model="config.auto_supplement_target"
+          type="number"
+          label="目标定金率(%)"
+          placeholder="如 100 表示 100%"
+        />
+        <van-field
+          v-model="config.trading_start_time"
+          label="交易开始时间"
+          placeholder="请选择开始时间"
+          readonly
+          is-link
+          @click="openStartTimePicker"
+        />
+        <van-field
+          v-model="config.trading_end_time"
+          label="交易结束时间"
+          placeholder="请选择结束时间"
+          readonly
+          is-link
+          @click="openEndTimePicker"
+        />
+        <van-cell title="交易日">
+          <template #label>
+            <van-checkbox-group
+              v-model="selectedTradingDays"
+              direction="horizontal"
+              @change="onTradingDaysChange"
+            >
+              <van-checkbox
+                v-for="item in tradingDayOptions"
+                :key="item.value"
+                :name="item.value"
+              >
+                {{ item.label }}
+              </van-checkbox>
+            </van-checkbox-group>
+            <div class="trading-days-hint">
+              {{ tradingDaysText || '未选择交易日' }}
+            </div>
+          </template>
+        </van-cell>
+        <van-cell title="节假日是否交易" label="关闭后，节假日/临时休市将禁止下单">
+          <template #right-icon>
+            <van-switch
+              v-model="config.holiday_trading_enabled"
+              :active-value="'1'"
+              :inactive-value="'0'"
+            />
+          </template>
+        </van-cell>
+        <van-cell
+          title="节假日休市日期"
+          :label="holidayDatesText || '未设置节假日休市日期'"
+          is-link
+          @click="showHolidayCalendar = true"
+        />
       </van-cell-group>
       
       <!-- 付/退定金配置 -->
@@ -71,6 +128,24 @@
           placeholder="请输入平台名称"
         />
         <van-field
+          v-model="config.platform_intro"
+          label="平台简介"
+          type="textarea"
+          rows="2"
+          autosize
+          placeholder="用于关于平台页面的简介文案"
+        />
+        <van-field
+          v-model="config.company_name"
+          label="公司名称"
+          placeholder="请输入公司名称"
+        />
+        <van-field
+          v-model="config.company_address"
+          label="公司地址"
+          placeholder="请输入公司地址"
+        />
+        <van-field
           v-model="config.platform_address"
           label="平台地址"
           placeholder="请输入平台地址"
@@ -84,10 +159,6 @@
             />
           </template>
         </van-field>
-        <div v-if="config.platform_logo" class="logo-preview">
-          <div class="logo-tip">当前Logo预览：</div>
-          <van-image :src="config.platform_logo" width="120" height="120" fit="contain" />
-        </div>
         <van-field
           v-model="config.service_phone"
           label="客服电话"
@@ -98,20 +169,30 @@
           label="客服微信"
           placeholder="请输入客服微信号"
         />
+      </van-cell-group>
+
+      <!-- 协议链接设置 -->
+      <van-cell-group inset style="margin-top: 20px;">
+        <van-cell title="协议链接设置" />
         <van-field
-          v-model="config.trading_start_time"
-          label="交易开始时间"
-          placeholder="如 09:00"
+          v-model="config.user_agreement_url"
+          label="用户协议链接"
+          placeholder="请输入用户协议 H5 地址"
         />
         <van-field
-          v-model="config.trading_end_time"
-          label="交易结束时间"
-          placeholder="如 01:00"
+          v-model="config.privacy_policy_url"
+          label="隐私政策链接"
+          placeholder="请输入隐私政策 H5 地址"
         />
         <van-field
-          v-model="config.trading_days"
-          label="交易日"
-          placeholder="如 1,2,3,4,5 表示周一到周五"
+          v-model="config.risk_warning_url"
+          label="风险提示链接"
+          placeholder="请输入风险提示 H5 地址"
+        />
+        <van-field
+          v-model="config.metal_service_agreement_url"
+          label="贵金属购销服务协议"
+          placeholder="请输入协议 H5 地址"
         />
       </van-cell-group>
       
@@ -121,6 +202,82 @@
         </van-button>
       </div>
     </div>
+
+    <van-popup v-model:show="showStartTimePicker" position="bottom" round>
+      <div class="time-popup">
+        <div class="time-toolbar">
+          <span class="time-toolbar-btn" @click="showStartTimePicker = false">取消</span>
+          <span class="time-toolbar-title">选择交易开始时间</span>
+          <span class="time-toolbar-btn primary" @click="confirmStartTime">确认</span>
+        </div>
+        <div class="time-columns">
+          <div class="time-column">
+            <div
+              v-for="h in hourOptions"
+              :key="h"
+              class="time-item"
+              :class="{ active: h === startHour }"
+              @click="startHour = h"
+            >
+              {{ h }} 时
+            </div>
+          </div>
+          <div class="time-column">
+            <div
+              v-for="m in minuteOptions"
+              :key="m"
+              class="time-item"
+              :class="{ active: m === startMinute }"
+              @click="startMinute = m"
+            >
+              {{ m }} 分
+            </div>
+          </div>
+        </div>
+      </div>
+    </van-popup>
+
+    <van-popup v-model:show="showEndTimePicker" position="bottom" round>
+      <div class="time-popup">
+        <div class="time-toolbar">
+          <span class="time-toolbar-btn" @click="showEndTimePicker = false">取消</span>
+          <span class="time-toolbar-title">选择交易结束时间</span>
+          <span class="time-toolbar-btn primary" @click="confirmEndTime">确认</span>
+        </div>
+        <div class="time-columns">
+          <div class="time-column">
+            <div
+              v-for="h in hourOptions"
+              :key="h"
+              class="time-item"
+              :class="{ active: h === endHour }"
+              @click="endHour = h"
+            >
+              {{ h }} 时
+            </div>
+          </div>
+          <div class="time-column">
+            <div
+              v-for="m in minuteOptions"
+              :key="m"
+              class="time-item"
+              :class="{ active: m === endMinute }"
+              @click="endMinute = m"
+            >
+              {{ m }} 分
+            </div>
+          </div>
+        </div>
+      </div>
+    </van-popup>
+
+    <!-- 节假日休市日期日历 -->
+    <van-calendar
+      v-model:show="showHolidayCalendar"
+      type="multiple"
+      color="#1989fa"
+      @confirm="onHolidayDatesConfirm"
+    />
   </div>
 </template>
 
@@ -132,7 +289,7 @@
  * @date 2025-11-18
  */
 
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { showToast } from 'vant'
 import request from '../../utils/request'
 import { API_ENDPOINTS } from '../../config/api'
@@ -146,6 +303,9 @@ const config = ref({
   min_order_amount: '',
   max_order_amount: '',
   delivery_fee_per_gram: '',
+  auto_supplement_target: '',
+  holiday_trading_enabled: '1',
+  holiday_closed_dates: '',
 
   // 付/退定金配置
   min_deposit_amount: '',
@@ -155,16 +315,94 @@ const config = ref({
 
   // 系统设置
   platform_name: '',
+  platform_intro: '',
+  company_name: '',
+  company_address: '',
   platform_address: '',
   platform_logo: '',
   service_phone: '',
   service_wechat: '',
   trading_start_time: '',
   trading_end_time: '',
-  trading_days: ''
+  trading_days: '',
+  user_agreement_url: '',
+  privacy_policy_url: '',
+  risk_warning_url: '',
+  metal_service_agreement_url: ''
 })
 
 const logoFiles = ref([])
+
+const showStartTimePicker = ref(false)
+const showEndTimePicker = ref(false)
+
+const hourOptions = [
+  '00',
+  '01',
+  '02',
+  '03',
+  '04',
+  '05',
+  '06',
+  '07',
+  '08',
+  '09',
+  '10',
+  '11',
+  '12',
+  '13',
+  '14',
+  '15',
+  '16',
+  '17',
+  '18',
+  '19',
+  '20',
+  '21',
+  '22',
+  '23'
+]
+
+const minuteOptions = ['00', '15', '30', '45']
+
+const startHour = ref('09')
+const startMinute = ref('00')
+const endHour = ref('18')
+const endMinute = ref('00')
+
+const tradingDayOptions = [
+  { label: '周一', value: '1' },
+  { label: '周二', value: '2' },
+  { label: '周三', value: '3' },
+  { label: '周四', value: '4' },
+  { label: '周五', value: '5' },
+  { label: '周六', value: '6' },
+  { label: '周日', value: '7' }
+]
+
+const selectedTradingDays = ref([])
+const tradingDayMap = tradingDayOptions.reduce((acc, item) => {
+  acc[item.value] = item.label
+  return acc
+}, {})
+
+const tradingDaysText = computed(() => {
+  if (!selectedTradingDays.value || selectedTradingDays.value.length === 0) {
+    return ''
+  }
+  return selectedTradingDays.value
+    .map((v) => tradingDayMap[v] || v)
+    .join('、')
+})
+
+// 节假日休市日期选择
+const showHolidayCalendar = ref(false)
+const holidayDates = ref([])
+
+const holidayDatesText = computed(() => {
+  if (!holidayDates.value || holidayDates.value.length === 0) return ''
+  return holidayDates.value.join('、')
+})
 
 // 处理平台Logo上传
 const compressImage = (file, maxWidth = 600, quality = 0.7) => {
@@ -212,6 +450,76 @@ const afterReadLogo = async (file) => {
   }
 }
 
+const openStartTimePicker = () => {
+  const raw = config.value.trading_start_time || '09:00'
+  const [h, m] = raw.split(':')
+  if (h) startHour.value = h.padStart(2, '0')
+  if (m) startMinute.value = m.padStart(2, '0')
+  showStartTimePicker.value = true
+}
+
+const openEndTimePicker = () => {
+  const raw = config.value.trading_end_time || '18:00'
+  const [h, m] = raw.split(':')
+  if (h) endHour.value = h.padStart(2, '0')
+  if (m) endMinute.value = m.padStart(2, '0')
+  showEndTimePicker.value = true
+}
+
+const confirmStartTime = () => {
+  config.value.trading_start_time = `${startHour.value}:${startMinute.value}`
+  showStartTimePicker.value = false
+}
+
+const confirmEndTime = () => {
+  config.value.trading_end_time = `${endHour.value}:${endMinute.value}`
+  showEndTimePicker.value = false
+}
+
+const syncTradingDaysFromConfig = () => {
+  const raw = config.value.trading_days
+  if (!raw) {
+    selectedTradingDays.value = []
+    return
+  }
+  selectedTradingDays.value = String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s)
+}
+
+const onTradingDaysChange = () => {
+  config.value.trading_days = selectedTradingDays.value.join(',')
+}
+
+const syncHolidayDatesFromConfig = () => {
+  const raw = config.value.holiday_closed_dates
+  if (!raw) {
+    holidayDates.value = []
+    return
+  }
+  holidayDates.value = String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s)
+}
+
+const onHolidayDatesConfirm = (values) => {
+  const arr = Array.isArray(values) ? values : [values]
+  const formatted = arr.map((val) => {
+    const d = new Date(val)
+    if (Number.isNaN(d.getTime())) return ''
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }).filter(Boolean)
+
+  holidayDates.value = formatted
+  config.value.holiday_closed_dates = formatted.join(',')
+  showHolidayCalendar.value = false
+}
+
 /**
  * 加载配置
  * @async
@@ -229,6 +537,11 @@ const loadConfig = async () => {
           config.value[key] = value
         }
       })
+
+      syncTradingDaysFromConfig()
+
+      // 节假日休市日期
+      syncHolidayDatesFromConfig()
 
       // 平台Logo回显（若存在）
       if (config.value.platform_logo) {
@@ -282,5 +595,59 @@ onMounted(() => {
 
 .button-group {
   margin-top: 30px;
+}
+
+.trading-days-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #999;
+}
+
+.time-popup {
+  background-color: #fff;
+}
+
+.time-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.time-toolbar-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.time-toolbar-btn {
+  color: #969799;
+}
+
+.time-toolbar-btn.primary {
+  color: #1989fa;
+}
+
+.time-columns {
+  display: flex;
+  height: 200px;
+}
+
+.time-column {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.time-item {
+  text-align: center;
+  padding: 10px 0;
+  font-size: 16px;
+  color: #323233;
+}
+
+.time-item.active {
+  color: #1989fa;
+  font-weight: 500;
 }
 </style>

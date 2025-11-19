@@ -266,28 +266,89 @@ func (h *QuoteProxyHub) extractPrice(message []byte) {
 	if err := json.Unmarshal(message, &data); err != nil {
 		return
 	}
-	
+
+	parsePrice := func(v interface{}) float64 {
+		switch t := v.(type) {
+		case string:
+			var p float64
+			if _, err := fmt.Sscanf(t, "%f", &p); err == nil && p > 0 {
+				return p
+			}
+		case float64:
+			if t > 0 {
+				return t
+			}
+		}
+		return 0
+	}
+
 	// 尝试提取Au9999价格
 	// 根据实际数据格式调整解析逻辑
 	if dataObj, ok := data["data"].(map[string]interface{}); ok {
 		if au9999, ok := dataObj["au9999"].(map[string]interface{}); ok {
-			if priceStr, ok := au9999["currentPrice"].(string); ok {
-				var price float64
-				if _, err := fmt.Sscanf(priceStr, "%f", &price); err == nil && price > 0 {
-					h.priceMutex.Lock()
-					h.latestPrice = price
-					h.lastUpdate = time.Now()
-					h.priceMutex.Unlock()
-					log.Printf("[QuoteProxy] 价格更新: Au9999 = %.2f 元/克", price)
-				}
-			} else if priceFloat, ok := au9999["currentPrice"].(float64); ok && priceFloat > 0 {
+			if price := parsePrice(au9999["currentPrice"]); price > 0 {
 				h.priceMutex.Lock()
-				h.latestPrice = priceFloat
+				h.latestPrice = price
 				h.lastUpdate = time.Now()
 				h.priceMutex.Unlock()
-				log.Printf("[QuoteProxy] 价格更新: Au9999 = %.2f 元/克", priceFloat)
+				log.Printf("[QuoteProxy] 价格更新: Au9999 = %.2f 元/克", price)
+				return
 			}
 		}
+	}
+
+	raw := data
+	if content, ok := raw["content"].(string); ok {
+		var inner map[string]interface{}
+		if err := json.Unmarshal([]byte(content), &inner); err == nil {
+			raw = inner
+		}
+	}
+
+	if items, ok := raw["items"].(map[string]interface{}); ok {
+		raw = items
+	}
+
+	var price float64
+	if au, ok := raw["AU"].(map[string]interface{}); ok {
+		if p := parsePrice(au["Sell"]); p > 0 {
+			price = p
+		}
+	}
+
+	if price == 0 {
+		if au9999, ok := raw["AU9999"].(map[string]interface{}); ok {
+			if p := parsePrice(au9999["Sell"]); p > 0 {
+				price = p
+			}
+		}
+	}
+
+	if price == 0 {
+		if xau, ok := raw["XAU"].(map[string]interface{}); ok {
+			if p := parsePrice(xau["Sell"]); p > 0 {
+				price = p
+			}
+		}
+	}
+
+	if price == 0 {
+		for _, v := range raw {
+			if m, ok := v.(map[string]interface{}); ok {
+				if p := parsePrice(m["Sell"]); p > 0 {
+					price = p
+					break
+				}
+			}
+		}
+	}
+
+	if price > 0 {
+		h.priceMutex.Lock()
+		h.latestPrice = price
+		h.lastUpdate = time.Now()
+		h.priceMutex.Unlock()
+		log.Printf("[QuoteProxy] 价格更新: Sell = %.2f 元/克", price)
 	}
 }
 

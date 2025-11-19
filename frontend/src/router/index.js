@@ -13,6 +13,8 @@ import Trade from '../pages/Trade.vue'
 import Positions from '../pages/Positions.vue'
 import Funds from '../pages/Funds.vue'
 import Mine from '../pages/Mine.vue'
+import Profile from '../pages/Profile.vue'
+import Verification from '../pages/Verification.vue'
 import Orders from '../pages/Orders.vue'
 import OrderDetail from '../pages/OrderDetail.vue'
 import BankCards from '../pages/BankCards.vue'
@@ -68,6 +70,16 @@ const router = createRouter({
       path: '/bank-cards', 
       component: BankCards, 
       meta: { requiresAuth: true } 
+    },
+    {
+      path: '/profile',
+      component: Profile,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/verification',
+      component: Verification,
+      meta: { requiresAuth: true }
     },
     { 
       path: '/notifications', 

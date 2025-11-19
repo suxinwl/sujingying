@@ -30,6 +30,7 @@ export const API_ENDPOINTS = {
   // 资金相关
   DEPOSITS: '/api/v1/deposits',
   DEPOSIT_CREATE: '/api/v1/deposits',
+  SUPPLEMENTS: '/api/v1/supplements',
   WITHDRAWS: '/api/v1/withdraws',
   WITHDRAW_CREATE: '/api/v1/withdraws',
   FUND_FLOW: '/api/v1/fund-logs',

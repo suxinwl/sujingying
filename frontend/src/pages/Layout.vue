@@ -10,7 +10,7 @@
         交易
       </van-tabbar-item>
       <van-tabbar-item replace to="/positions" icon="records-o">
-        持仓
+        料仓
       </van-tabbar-item>
       <van-tabbar-item replace to="/funds" icon="gold-coin-o">
         资金

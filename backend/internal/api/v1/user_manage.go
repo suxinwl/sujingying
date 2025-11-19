@@ -63,6 +63,7 @@ type verifyAuditReq struct {
  */
 func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	userRepo := repository.NewUserRepository(ctx.DB)
+	orderRepo := repository.NewOrderRepository(ctx.DB)
 	
 	// 所有用户管理接口需要管理员权限
 	admin := rg.Group("", middleware.RequireAdmin(ctx))
@@ -188,6 +189,25 @@ func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			}
 		}
 		
+		// 预先计算每个用户的待结金料(持仓克重)和已结金料(已结算克重)
+		pendingWeightMap := make(map[uint]float64)
+		settledWeightMap := make(map[uint]float64)
+		for _, user := range users {
+			// 持仓克重：status = holding
+			var holdingTotal float64
+			if err := ctx.DB.Model(&model.Order{}).
+				Where("user_id = ? AND status = ?", user.ID, model.OrderStatusHolding).
+				Select("COALESCE(SUM(weight_g), 0)").
+				Scan(&holdingTotal).Error; err == nil {
+				pendingWeightMap[user.ID] = holdingTotal
+			}
+
+			// 已结算克重：复用仓储方法
+			if settledTotal, err := orderRepo.GetTotalWeightByCustomer(user.ID); err == nil {
+				settledWeightMap[user.ID] = settledTotal
+			}
+		}
+
 		// 脱敏处理(移除密码)
 		result := make([]map[string]interface{}, 0, len(users))
 		for _, user := range users {
@@ -204,6 +224,8 @@ func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 				"used_deposit":            user.UsedDeposit,
 				"has_pay_password":        user.HasPayPassword,
 				"auto_supplement_enabled": user.AutoSupplementEnabled,
+				"pending_weight_g":        pendingWeightMap[user.ID],
+				"settled_weight_g":        settledWeightMap[user.ID],
 				"created_at":              user.CreatedAt,
 			})
 		}

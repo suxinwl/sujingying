@@ -18,10 +18,16 @@
       <van-icon name="arrow" />
     </div>
     
-    <!-- 功能菜单：仅客户/销售员显示 -->
-    <van-cell-group v-if="userStore.isCustomer || userStore.isSales">
-      <van-cell title="我的订单" is-link to="/orders" icon="notes-o" />
-      <van-cell title="银行卡管理" is-link to="/bank-cards" icon="credit-pay" />
+    <!-- 通用功能菜单：所有角色 -->
+    <van-cell-group>
+      <van-cell title="资料设置" is-link to="/profile" icon="user-o" />
+      <van-cell
+        v-if="userStore.isCustomer || userStore.isSales"
+        title="实名认证"
+        is-link
+        to="/verification"
+        icon="shield-o"
+      />
       <van-cell
         title="消息通知"
         is-link
@@ -29,6 +35,11 @@
         icon="bell"
         :badge="unreadCount"
       />
+    </van-cell-group>
+
+    <!-- 客户/销售专属功能 -->
+    <van-cell-group v-if="userStore.isCustomer || userStore.isSales">
+      <van-cell title="银行卡管理" is-link to="/bank-cards" icon="credit-pay" />
     </van-cell-group>
     
     <!-- 销售功能 -->
@@ -60,6 +71,12 @@
         @click="showPayPasswordDialog = true" 
         icon="shield-o"
         :label="userStore.userInfo?.has_pay_password ? '已设置' : '未设置'"
+      />
+      <van-cell
+        v-if="userStore.isCustomer"
+        title="自动补定金"
+        icon="warn-o"
+        :label="userStore.userInfo?.auto_supplement_enabled ? '已启用（如需关闭请联系客服）' : '未启用（如需开通请联系客服）'"
       />
     </van-cell-group>
 

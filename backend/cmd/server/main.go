@@ -52,10 +52,10 @@ func main() {
 	log.Println("[Main] ✅ WebSocket通知推送中心已启动")
 	service.SetDefaultNotificationHub(notificationHub)
 
-	// 启动风控调度器（60秒间隔，使用WebSocket价格）
-	riskScheduler := scheduler.NewRiskScheduler(app, 60, quoteHub)
+	// 启动风控调度器（15秒间隔，使用WebSocket价格）
+	riskScheduler := scheduler.NewRiskScheduler(app, 15, quoteHub)
 	riskScheduler.Start()
-	log.Println("[Main] ✅ 风控调度器已启动（价格来源: WebSocket实时数据）")
+	log.Println("[Main] ✅ 风控调度器已启动（间隔: 15秒，价格来源: WebSocket实时数据）")
 
 	// WebSocket升级器
 	upgrader := websocket.Upgrader{

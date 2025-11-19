@@ -120,8 +120,8 @@
 import { ref, onMounted } from 'vue'
 import { showToast, showDialog } from 'vant'
 import { areaList } from '@vant/area-data'
-
-const STORAGE_KEY = 'platform_addresses'
+import request from '../../utils/request'
+import { API_ENDPOINTS } from '../../config/api'
 
 const addresses = ref([])
 const showForm = ref(false)
@@ -142,22 +142,42 @@ const form = ref({
 
 const regionText = ref('')
 
-const loadAddresses = () => {
+const loadAddresses = async () => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const list = JSON.parse(raw)
-      if (Array.isArray(list)) {
-        addresses.value = list
-      }
+    const data = await request.get(API_ENDPOINTS.CONFIG)
+    let list = []
+    if (data && data.configs && data.configs.length > 0) {
+      data.configs.forEach((item) => {
+        const key = item.key || item.Key
+        const value = item.value || item.Value
+        if (key === 'platform_addresses' && value) {
+          try {
+            const parsed = JSON.parse(value)
+            if (Array.isArray(parsed)) {
+              list = parsed
+            }
+          } catch (err) {
+            console.error('解析平台收货地址配置失败:', err)
+          }
+        }
+      })
     }
+    addresses.value = list
   } catch (e) {
     console.error('加载平台收货地址失败:', e)
   }
 }
 
-const saveAddresses = () => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(addresses.value))
+const saveAddresses = async () => {
+  try {
+    const payload = {
+      platform_addresses: JSON.stringify(addresses.value || [])
+    }
+    await request.post(API_ENDPOINTS.CONFIG + '/batch', payload)
+  } catch (e) {
+    console.error('保存平台收货地址失败:', e)
+    showToast('保存失败')
+  }
 }
 
 const formatRegion = (addr) => {
@@ -188,12 +208,12 @@ const editAddress = (addr) => {
   showForm.value = true
 }
 
-const setDefault = (id) => {
+const setDefault = async (id) => {
   addresses.value = addresses.value.map((item) => ({
     ...item,
     is_default: item.id === id
   }))
-  saveAddresses()
+  await saveAddresses()
   showToast('已设为默认地址')
 }
 
@@ -222,7 +242,7 @@ const deleteAddress = async (id) => {
     addresses.value[0].is_default = true
   }
 
-  saveAddresses()
+  await saveAddresses()
   showToast('已删除')
 }
 
@@ -235,7 +255,7 @@ const onAreaConfirm = ({ selectedOptions }) => {
   showArea.value = false
 }
 
-const onSubmit = () => {
+const onSubmit = async () => {
   if (!regionText.value) {
     showToast('请选择地区')
     return
@@ -271,7 +291,7 @@ const onSubmit = () => {
     addresses.value.push(newAddr)
   }
 
-  saveAddresses()
+  await saveAddresses()
   showForm.value = false
   showToast('保存成功')
 }

@@ -148,6 +148,64 @@ func (s *OrderService) CreateOrder(userID uint, req CreateOrderRequest) (*model.
 	return order, nil
 }
 
+func (s *OrderService) autoForceCloseOrder(order *model.Order) error {
+	user, err := s.userRepo.FindByID(order.UserID)
+	if err != nil {
+		return errors.New("用户不存在")
+	}
+
+	tx := s.ctx.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	settledPnL := order.CalculatePnL(order.CurrentPrice)
+	newAvailable := user.AvailableDeposit + order.Deposit + settledPnL
+	newUsed := user.UsedDeposit - order.Deposit
+
+	if newAvailable < 0 {
+		tx.Rollback()
+		return errors.New("强平后资金异常（可用定金为负）")
+	}
+
+	if err := tx.Model(&model.User{}).Where("id = ?", order.UserID).Updates(map[string]interface{}{
+		"available_deposit": newAvailable,
+		"used_deposit":      newUsed,
+	}).Error; err != nil {
+		tx.Rollback()
+		return errors.New("更新用户资金失败")
+	}
+
+	order.ForceClose(order.CurrentPrice)
+	if err := tx.Save(order).Error; err != nil {
+		tx.Rollback()
+		return errors.New("更新订单状态失败")
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return errors.New("事务提交失败")
+	}
+
+	go func() {
+		// 计算销售提成
+		salesSvc := NewSalesService(s.ctx)
+		if err := salesSvc.ProcessOrderCommission(order.ID); err != nil {
+			log.Printf("[Order] 强平订单计算提成失败: %v", err)
+		}
+
+		// 发送强平风险通知（20% 强平线）
+		notiSvc := NewNotificationService(s.ctx)
+		msg := fmt.Sprintf("您的订单[%s]因定金率低于20%%已触发系统强制平仓，结算盈亏：%.2f 元。", order.OrderID, order.SettledPnL)
+		if err := notiSvc.SendRiskNotification(order.UserID, order.OrderID, msg, true); err != nil {
+			log.Printf("[Order] 发送强平通知失败: %v", err)
+		}
+	}()
+
+	return nil
+}
+
 /**
  * GetUserOrders 获取用户订单列表
  * 
@@ -294,11 +352,39 @@ func (s *OrderService) UpdateOrderPrices(currentPrice float64) error {
 	}
 	
 	// 批量更新每个订单
+	notiSvc := NewNotificationService(s.ctx)
 	for _, order := range orders {
+		// 记录更新前的定金率，用于判断是否刚跨越风险阈值
+		oldMargin := order.MarginRate
 		order.UpdatePnLAndMargin(currentPrice)
+		newMargin := order.MarginRate
 		if err := s.orderRepo.UpdatePnLAndMargin(order); err != nil {
 			// 记录错误但继续处理其他订单
 			fmt.Printf("更新订单 %s 失败: %v\n", order.OrderID, err)
+			continue
+		}
+
+		// 50% 阈值预警：从 >50% 降到 ≤50%（且未进入 25%/20% 更低档位之前也会先发一次）
+		if oldMargin > 50.0 && newMargin <= 50.0 && newMargin > 25.0 {
+			msg := fmt.Sprintf("订单[%s]定金率已降至 %.2f%%，触发50%%阈值预警，请及时关注并补充定金。", order.OrderID, newMargin)
+			if err := notiSvc.SendRiskNotification(order.UserID, order.OrderID, msg, false); err != nil {
+				log.Printf("[Order] 发送50%%阈值预警失败: %v", err)
+			}
+		}
+
+		// 25% 区间预警：从非(20%,25%) 区间进入 (20%,25%) 区间
+		if !(oldMargin > 20.0 && oldMargin < 25.0) && newMargin > 20.0 && newMargin < 25.0 {
+			msg := fmt.Sprintf("订单[%s]定金率已降至 %.2f%%，进入高风险区间(20%%~25%%)，请立即处理。", order.OrderID, newMargin)
+			if err := notiSvc.SendRiskNotification(order.UserID, order.OrderID, msg, false); err != nil {
+				log.Printf("[Order] 发送25%%区间预警失败: %v", err)
+			}
+		}
+
+		// 20% 强平线：触发自动强制平仓
+		if order.IsNeedForceClose() {
+			if err := s.autoForceCloseOrder(order); err != nil {
+				fmt.Printf("强平订单 %s 失败: %v\n", order.OrderID, err)
+			}
 		}
 	}
 	

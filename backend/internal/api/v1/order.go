@@ -29,7 +29,6 @@ type createOrderReq struct {
 	LockedPrice float64 `json:"locked_price" binding:"required"` // 锁定价格
 	WeightG     float64 `json:"weight_g" binding:"required"`     // 克重
 	Deposit     float64 `json:"deposit" binding:"required"`      // 定金
-	PayPassword string  `json:"pay_password" binding:"required"` // 支付密码
 }
 
 /**
@@ -89,12 +88,6 @@ func RegisterOrderRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		}
 		
 		userID := c.GetUint("user_id")
-		
-		// 验证支付密码
-		if err := paypassSvc.RequirePayPassword(userID, req.PayPassword); err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return
-		}
 		
 		// 创建订单
 		order, err := orderSvc.CreateOrder(userID, service.CreateOrderRequest{

@@ -515,43 +515,38 @@ onUnmounted(() => {
   color: #00ff00;
 }
 
-/* ========== 数据变化动画 ========== */
+/* ========== 数据变化动画：字体闪烁红/绿 ========== */
 [data-field] {
   position: relative;
-  transition: all 0.3s ease;
 }
 
-/* 价格上涨闪烁动画 */
+/* 价格上涨：字体红色闪烁 */
 @keyframes flashUp {
   0% {
-    background-color: rgba(255, 68, 68, 0.4);
-    transform: scale(1.05);
+    color: #ff6666;
   }
   50% {
-    background-color: rgba(255, 68, 68, 0.6);
+    color: #ffffff;
   }
   100% {
-    background-color: transparent;
-    transform: scale(1);
+    color: #ff6666;
   }
 }
 
-/* 价格下跌闪烁动画 */
+/* 价格下跌：字体绿色闪烁 */
 @keyframes flashDown {
   0% {
-    background-color: rgba(0, 255, 0, 0.4);
-    transform: scale(1.05);
+    color: #66ff66;
   }
   50% {
-    background-color: rgba(0, 255, 0, 0.6);
+    color: #ffffff;
   }
   100% {
-    background-color: transparent;
-    transform: scale(1);
+    color: #66ff66;
   }
 }
 
-/* 应用上涨动画 */
+/* 应用上涨动画（结束后 JS 会移除类，恢复原始颜色） */
 .flash-up {
   animation: flashUp 0.6s ease-out;
 }

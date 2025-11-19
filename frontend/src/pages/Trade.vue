@@ -20,7 +20,7 @@
     
     <!-- 买卖切换 -->
     <van-tabs v-model:active="tradeType" color="#f44" title-active-color="#f44">
-      <van-tab title="买入" name="buy">
+      <van-tab title="锁价买料" name="buy">
         <div class="trade-form">
           <!-- 买入克重提示 -->
           <div class="tip-row">
@@ -94,7 +94,7 @@
         </div>
       </van-tab>
       
-      <van-tab title="卖出" name="sell">
+      <van-tab title="锁价卖料" name="sell">
         <div class="trade-form">
           <!-- 卖出克重提示 -->
           <div class="tip-row">
@@ -218,7 +218,7 @@
         <div class="agreement-body">
           <iframe
             class="agreement-frame"
-            src="https://j.kingsoftsys.com/h5/#/pages/agreement/index?demp_code=b6b85d1aec49b7db7228ce"
+            :src="config.metal_service_agreement_url || defaultMetalAgreementUrl"
             frameborder="0"
           ></iframe>
         </div>
@@ -229,6 +229,60 @@
         </div>
       </div>
     </van-popup>
+
+    <!-- 确认订单弹窗（价格与金额实时变化） -->
+    <van-dialog
+      v-model:show="showConfirmDialog"
+      title="确认订单"
+      show-cancel-button
+      confirm-button-text="确认"
+      cancel-button-text="取消"
+      :close-on-click-overlay="false"
+      :show-confirm-button="true"
+      :show-cancel-button="true"
+      @confirm="handleConfirmOrder"
+    >
+      <div class="order-confirm-content">
+        <div class="order-confirm-row">
+          <span class="label">订单类型：</span>
+          <span class="value">{{ tradeType === 'buy' ? '买入' : '卖出' }}</span>
+        </div>
+        <div class="order-confirm-row">
+          <span class="label">下单品类：</span>
+          <span class="value">黄金板料</span>
+        </div>
+        <div class="order-confirm-row">
+          <span class="label">锁定单价：</span>
+          <span class="value strong">
+            {{
+              (tradeType === 'buy' ? quoteStore.buyPrice : quoteStore.sellPrice) > 0
+                ? (tradeType === 'buy' ? quoteStore.buyPrice : quoteStore.sellPrice).toFixed(2)
+                : '--'
+            }}
+            元/克
+          </span>
+        </div>
+        <div class="order-confirm-row">
+          <span class="label">下单重量：</span>
+          <span class="value">{{ form.amount }} 克</span>
+        </div>
+        <div class="order-confirm-row">
+          <span class="label">预估金额：</span>
+          <span class="value">{{ estimatedAmount > 0 ? estimatedAmount.toFixed(2) : '0.00' }} 元</span>
+        </div>
+        <div class="order-confirm-row">
+          <span class="label">总服务费(按实收重量收取)：</span>
+          <span class="value">{{ serviceFee > 0 ? serviceFee.toFixed(2) : '0.00' }} 元</span>
+        </div>
+        <div class="order-confirm-row">
+          <span class="label">定金：</span>
+          <span class="value">{{ requiredDepositValue > 0 ? requiredDepositValue.toFixed(2) : '0.00' }} 元</span>
+        </div>
+        <div class="order-confirm-hint">
+          最终锁定价格以点击确认时的实时价格为准
+        </div>
+      </div>
+    </van-dialog>
   </div>
 </template>
 
@@ -245,6 +299,9 @@ const route = useRoute()
 const router = useRouter()
 const quoteStore = useQuoteStore()
 
+// 贵金属购销服务协议默认链接（系统未配置时兜底）
+const defaultMetalAgreementUrl = 'https://j.kingsoftsys.com/h5/#/pages/agreement/index?demp_code=b6b85d1aec49b7db7228ce'
+
 // 交易类型：buy=锁价买料，sell=锁价卖料
 const tradeType = ref(route.query.type || 'buy')
 
@@ -256,6 +313,7 @@ const loading = ref(false)
 const agreeProtocol = ref(false)
 const showAddressPopup = ref(false)
 const showAgreementPopup = ref(false)
+const showConfirmDialog = ref(false)
 
 // 配置：从后台配置中心读取
 const config = ref({
@@ -263,7 +321,13 @@ const config = ref({
   min_order_amount: 100,
   service_fee_rate: 0.02, // 兼容旧字段（按金额比例），优先使用交割服务费
   deposit_per_gram: 10,   // 每克定金10元
-  delivery_fee_per_gram: 0 // 交割服务费（元/克）
+  delivery_fee_per_gram: 0, // 交割服务费（元/克）
+  metal_service_agreement_url: '', // 贵金属购销服务协议链接
+  trading_start_time: '',      // 交易开始时间，例如 "09:00"
+  trading_end_time: '',        // 交易结束时间，例如 "18:00"
+  trading_days: '',            // 交易日列表，例如 "1,2,3,4,5"
+  holiday_trading_enabled: '1', // 节假日是否交易：'1' 允许，'0' 休市
+  holiday_closed_dates: ''      // 节假日休市日期列表，格式 YYYY-MM-DD,逗号分隔
 })
 
 const balance = ref({
@@ -288,11 +352,10 @@ const estimatedAmount = computed(() => {
 })
 
 // 计算总服务费：交易克重 * 交割服务费（元/克）
-// 交割服务费从 delivery_fee_per_gram 读取，若未配置则回退到 service_fee_rate
+// 交割服务费仅从 delivery_fee_per_gram 读取，未配置则视为 0
 const serviceFee = computed(() => {
   const amount = parseFloat(form.value.amount) || 0
-  const feePerGram =
-    (config.value.delivery_fee_per_gram ?? 0) || (config.value.service_fee_rate ?? 0)
+  const feePerGram = parseFloat(config.value.delivery_fee_per_gram) || 0
   return amount * feePerGram
 })
 
@@ -314,34 +377,131 @@ const loadConfig = async () => {
     const data = await request.get(API_ENDPOINTS.CONFIG)
     if (data.configs && Array.isArray(data.configs)) {
       data.configs.forEach(item => {
-        if (item.key === 'deposit_rate') {
-          config.value.deposit_rate = parseFloat(item.value) || 0.1
+        const key = item.key || item.Key
+        const value = item.value || item.Value
+        if (!key) return
+
+        if (key === 'deposit_rate') {
+          config.value.deposit_rate = parseFloat(value) || 0.1
         }
-        if (item.key === 'min_order_amount') {
-          config.value.min_order_amount = parseFloat(item.value) || 100
+        if (key === 'min_order_amount') {
+          config.value.min_order_amount = parseFloat(value) || 100
         }
-        if (item.key === 'service_fee_rate') {
-          config.value.service_fee_rate = parseFloat(item.value) || 0.02
+        if (key === 'service_fee_rate') {
+          config.value.service_fee_rate = parseFloat(value) || 0.02
         }
-        if (item.key === 'deposit_per_gram') {
-          config.value.deposit_per_gram = parseFloat(item.value) || 10
+        if (key === 'deposit_per_gram') {
+          config.value.deposit_per_gram = parseFloat(value) || 10
         }
-        if (item.key === 'delivery_fee_per_gram') {
-          config.value.delivery_fee_per_gram = parseFloat(item.value) || 0
+        if (key === 'delivery_fee_per_gram') {
+          config.value.delivery_fee_per_gram = parseFloat(value) || 0
+        }
+        if (key === 'metal_service_agreement_url') {
+          config.value.metal_service_agreement_url = value || ''
+        }
+        if (key === 'trading_start_time') {
+          config.value.trading_start_time = value || ''
+        }
+        if (key === 'trading_end_time') {
+          config.value.trading_end_time = value || ''
+        }
+        if (key === 'trading_days') {
+          config.value.trading_days = value || ''
+        }
+        if (key === 'holiday_trading_enabled') {
+          config.value.holiday_trading_enabled = value ?? '1'
+        }
+        if (key === 'holiday_closed_dates') {
+          config.value.holiday_closed_dates = value || ''
         }
       })
     }
   } catch (error) {
     console.error('获取配置失败:', error)
-    // 使用默认配置兜底
-    config.value = {
-      deposit_rate: 0.1,
-      min_order_amount: 100,
-      service_fee_rate: 0.02,
-      deposit_per_gram: 10,
-      delivery_fee_per_gram: 0
+    // 使用默认配置兜底（保留已有默认值）
+  }
+}
+
+// 校验当前是否处于允许交易的时间与交易日内
+const checkTradingStatus = () => {
+  const cfg = config.value || {}
+
+  // 1. 节假日开关：'0' 表示休市
+  if (cfg.holiday_trading_enabled === '0') {
+    return {
+      open: false,
+      message: '当前为节假日休市，暂不支持交易'
     }
   }
+
+  const now = new Date()
+
+  // 2. 节假日日期列表：holiday_closed_dates，格式 YYYY-MM-DD,逗号分隔
+  const closedStr = cfg.holiday_closed_dates || ''
+  if (closedStr) {
+    const y = now.getFullYear()
+    const m = String(now.getMonth() + 1).padStart(2, '0')
+    const d = String(now.getDate()).padStart(2, '0')
+    const todayStr = `${y}-${m}-${d}`
+    const closedList = String(closedStr)
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s)
+    if (closedList.includes(todayStr)) {
+      return {
+        open: false,
+        message: '当前为节假日休市，暂不支持交易'
+      }
+    }
+  }
+
+  // 3. 校验交易日（1-7 表示周一到周日）
+  const jsDay = now.getDay() // 0=周日,1=周一,...,6=周六
+  const weekday = jsDay === 0 ? 7 : jsDay
+  const tradingDaysStr = cfg.trading_days || ''
+  if (tradingDaysStr) {
+    const days = String(tradingDaysStr)
+      .split(',')
+      .map((s) => parseInt(s.trim(), 10))
+      .filter((n) => !Number.isNaN(n))
+    if (days.length && !days.includes(weekday)) {
+      return {
+        open: false,
+        message: '当前非交易日，暂不支持交易'
+      }
+    }
+  }
+
+  const parseTimeToMinutes = (str, defaultMinutes) => {
+    if (!str) return defaultMinutes
+    const parts = String(str).split(':')
+    const h = parseInt(parts[0], 10)
+    const m = parseInt(parts[1], 10)
+    if (Number.isNaN(h) || Number.isNaN(m)) return defaultMinutes
+    return h * 60 + m
+  }
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  // 默认全天可交易
+  const startMinutes = parseTimeToMinutes(cfg.trading_start_time, 0)
+  const endMinutes = parseTimeToMinutes(cfg.trading_end_time, 23 * 60 + 59)
+
+  let inTime = false
+  if (endMinutes <= startMinutes) {
+    // 跨午夜区间：例如 20:00-06:00
+    inTime = nowMinutes >= startMinutes || nowMinutes <= endMinutes
+  } else {
+    inTime = nowMinutes >= startMinutes && nowMinutes <= endMinutes
+  }
+
+  if (!inTime) {
+    return {
+      open: false,
+      message: '当前非交易时间，暂不支持交易'
+    }
+  }
+
+  return { open: true, message: '' }
 }
 
 // 获取余额
@@ -372,11 +532,18 @@ const onAgreementConfirm = () => {
   agreeProtocol.value = true
 }
 
-// 提交订单
-const onSubmit = async () => {
+// 提交订单：先打开确认弹窗，价格在弹窗内实时变化
+const onSubmit = () => {
   // 验证是否同意协议
   if (!agreeProtocol.value) {
     showToast('请先阅读并同意服务协议')
+    return
+  }
+
+  // 验证是否在交易时间与交易日内
+  const tradingStatus = checkTradingStatus()
+  if (!tradingStatus.open) {
+    showToast(tradingStatus.message || '当前为非交易时段，暂不支持交易')
     return
   }
 
@@ -387,104 +554,43 @@ const onSubmit = async () => {
     return
   }
 
-  // 验证价格（来自 WebSocket 实时报价）
+  // 验证当前价格是否可用（用于确认弹窗展示）
   const price = tradeType.value === 'buy' ? quoteStore.buyPrice : quoteStore.sellPrice
   if (!price || price <= 0) {
     showToast('无法获取当前价格，请稍后重试')
     return
   }
 
+  showConfirmDialog.value = true
+}
+
+// 确认下单：点击确认订单弹窗中的“确认”
+const handleConfirmOrder = async () => {
+  // 再次校验交易时间与交易日
+  const tradingStatus = checkTradingStatus()
+  if (!tradingStatus.open) {
+    showToast(tradingStatus.message || '当前为非交易时段，暂不支持交易')
+    showConfirmDialog.value = false
+    return
+  }
+
+  // 再次校验克重
+  const amount = parseFloat(form.value.amount)
+  if (!amount || amount < config.value.min_order_amount) {
+    showToast(`最低${tradeType.value === 'buy' ? '买入' : '卖出'}克重为${config.value.min_order_amount}克`)
+    showConfirmDialog.value = false
+    return
+  }
+
+  // 用户点击"确认"后，再以当前行情价格作为真正的锁定价格
+  const lockedPrice = tradeType.value === 'buy' ? quoteStore.buyPrice : quoteStore.sellPrice
+  if (!lockedPrice || lockedPrice <= 0) {
+    showToast('当前价格获取失败，请稍后重试')
+    return
+  }
+
   // 计算定金
   const deposit = amount * (config.value.deposit_per_gram || 10)
-
-  // 订单确认弹窗（参考产品原型）
-  const typeText = tradeType.value === 'buy' ? '买入' : '卖出'
-  const productText = '黄金板料'
-  const confirmMessage = `
-    <div style="text-align:left;font-size:14px;line-height:1.6;">
-      <div style="margin:4px 0;"><span>订单类型：</span><span style="float:right;">${typeText}</span></div>
-      <div style="margin:4px 0;"><span>下单品类：</span><span style="float:right;">${productText}</span></div>
-      <div style="margin:4px 0;"><span>实时报价：</span><span style="float:right;">${price.toFixed(2)} 元/克</span></div>
-      <div style="margin:4px 0;"><span>下单重量：</span><span style="float:right;">${amount} 克</span></div>
-      <div style="margin:4px 0;"><span>预估金额：</span><span style="float:right;">${estimatedAmount.value.toFixed(2)} 元</span></div>
-      <div style="margin:4px 0;"><span>总服务费(按实收重量收取)：</span><span style="float:right;">${serviceFee.value.toFixed(2)} 元</span></div>
-      <div style="margin:4px 0;"><span>定金：</span><span style="float:right;">${deposit.toFixed(2)} 元</span></div>
-    </div>
-  `
-
-  const confirmed = await new Promise((resolve) => {
-    showDialog({
-      title: '确认订单',
-      message: confirmMessage,
-      showCancelButton: true,
-      confirmButtonText: '确认',
-      cancelButtonText: '取消',
-      allowHtml: true,
-      beforeClose: (action) => {
-        resolve(action === 'confirm')
-        return true
-      }
-    }).catch(() => {
-      resolve(false)
-    })
-  })
-
-  if (!confirmed) {
-    return
-  }
-
-  // 弹出支付密码输入框
-  const payPassword = await new Promise((resolve) => {
-    showDialog({
-      title: '请输入支付密码',
-      message: '请输入6位数字支付密码',
-      showCancelButton: true,
-      beforeClose: (action) => {
-        if (action === 'confirm') {
-          const input = document.querySelector('.van-dialog__message input')
-          if (input) {
-            resolve(input.value)
-          } else {
-            resolve(null)
-          }
-        } else {
-          resolve(null)
-        }
-        return true
-      }
-    })
-      .then(() => {
-        // 点击确认
-      })
-      .catch(() => {
-        // 点击取消
-        resolve(null)
-      })
-
-    // 在 message 区域插入输入框
-    setTimeout(() => {
-      const messageEl = document.querySelector('.van-dialog__message')
-      if (messageEl && !messageEl.querySelector('input')) {
-        const input = document.createElement('input')
-        input.type = 'password'
-        input.maxLength = 6
-        input.placeholder = '请输入6位数字'
-        input.style.cssText = 'width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-top: 8px; font-size: 16px;'
-        messageEl.appendChild(input)
-        input.focus()
-      }
-    }, 100)
-  })
-
-  if (!payPassword) {
-    showToast('请输入支付密码')
-    return
-  }
-
-  if (!/^\d{6}$/.test(payPassword)) {
-    showToast('支付密码必须是6位数字')
-    return
-  }
 
   try {
     loading.value = true
@@ -494,15 +600,16 @@ const onSubmit = async () => {
 
     const orderData = {
       type: orderType,          // long_buy 或 short_sell
-      locked_price: price,      // 锁定价格
+      locked_price: lockedPrice,      // 锁定价格（以点击"确认"时的实时价格为准）
       weight_g: amount,         // 克重
-      deposit: deposit,         // 定金
-      pay_password: payPassword // 支付密码
+      deposit: deposit          // 定金
     }
 
     console.log('📝 提交订单数据:', orderData)
 
     const data = await request.post(API_ENDPOINTS.ORDER_CREATE, orderData)
+
+    showConfirmDialog.value = false
 
     showDialog({
       title: '下单成功',
@@ -510,10 +617,11 @@ const onSubmit = async () => {
       confirmButtonText: '查看订单'
     })
       .then(() => {
-        router.push(`/orders/${data.id || data.order_id}`)
+        const orderId = data.order_id || data.id
+        router.push({ path: '/positions', query: { order_id: orderId } })
       })
       .catch(() => {
-        router.push('/orders')
+        router.push('/positions')
       })
 
     // 重新加载余额
@@ -759,5 +867,37 @@ onMounted(() => {
   padding: 12px 16px 20px;
   border-top: 1px solid #f0f0f0;
   background: #fff;
+}
+
+/* 确认订单弹窗样式 */
+.order-confirm-content {
+  padding: 8px 4px 4px;
+}
+
+.order-confirm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 2px 0;
+  font-size: 14px;
+}
+
+.order-confirm-row .label {
+  color: #333;
+}
+
+.order-confirm-row .value {
+  color: #333;
+}
+
+.order-confirm-row .value.strong {
+  font-weight: 600;
+}
+
+.order-confirm-hint {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 12px;
+  color: #999;
 }
 </style>

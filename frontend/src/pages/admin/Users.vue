@@ -68,6 +68,14 @@
               <span class="value">¥{{ formatMoney(user.used_deposit) }}</span>
             </div>
             <div class="user-row">
+              <span class="label">待结金料:</span>
+              <span class="value">{{ (user.pending_weight_g || 0).toFixed(3) }}g</span>
+            </div>
+            <div class="user-row">
+              <span class="label">已结金料:</span>
+              <span class="value">{{ (user.settled_weight_g || 0).toFixed(3) }}g</span>
+            </div>
+            <div class="user-row">
               <span class="label">上级销售:</span>
               <span class="value">
                 {{ user.sales_name || (user.sales_id ? 'ID:' + user.sales_id : '-') }}

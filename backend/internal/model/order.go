@@ -118,19 +118,17 @@ func (o *Order) CalculatePnL(currentPrice float64) float64 {
  *   定金率 = (10000 - 2000) / (500 * 100) * 100 = 16%（触发强平）
  */
 func (o *Order) CalculateMarginRate(currentPrice float64) float64 {
-	// 计算当前市值
-	currentValue := currentPrice * o.WeightG
-	
-	// 避免除零错误
-	if currentValue == 0 {
-		return 100.0
-	}
-	
 	// 计算浮动盈亏
 	pnl := o.CalculatePnL(currentPrice)
-	
-	// 定金率 = (定金 + 盈亏) / 市值 × 100%
-	marginRate := (o.Deposit + pnl) / currentValue * 100.0
+
+	// 按前端一致的规则计算基础定金：克重 × 10 元/克
+	baseDeposit := o.WeightG * 10
+	if baseDeposit <= 0 {
+		return 0.0
+	}
+
+	// 定金率 = (定金 + 浮动盈亏) / 基础定金 × 100%
+	marginRate := (o.Deposit + pnl) / baseDeposit * 100.0
 	
 	return marginRate
 }

@@ -97,7 +97,7 @@
             is-link
             readonly
             :rules="[{ required: true, message: '请选择银行名称' }]"
-            @click="showBankPicker = true"
+            @click="openBankPicker"
           />
           <van-field
             v-model="bankCardForm.account_number"
@@ -150,18 +150,26 @@
       </div>
     </van-popup>
 
-    <van-action-sheet v-model:show="showBankPicker" title="选择银行">
-      <div class="bank-list">
-        <div
-          v-for="bank in bankOptions"
-          :key="bank"
-          class="bank-item"
-          @click="selectBank(bank)"
-        >
-          {{ bank }}
+    <van-popup v-model:show="showBankPicker" position="bottom" round>
+      <div class="bank-picker-popup">
+        <div class="bank-picker-toolbar">
+          <span class="bank-picker-btn" @click="onCancelBank">取消</span>
+          <span class="bank-picker-title">选择银行</span>
+          <span class="bank-picker-btn primary" @click="onConfirmBank">确认</span>
+        </div>
+        <div class="bank-picker-list">
+          <div
+            v-for="bank in bankOptions"
+            :key="bank"
+            class="bank-picker-item"
+            :class="{ active: bank === tempSelectedBank }"
+            @click="tempSelectedBank = bank"
+          >
+            {{ bank }}
+          </div>
         </div>
       </div>
-    </van-action-sheet>
+    </van-popup>
 
     <!-- 微信收款码设置弹窗 -->
     <van-popup v-model:show="showWechatForm" position="bottom" round>
@@ -349,6 +357,8 @@ const bankOptions = [
   '平安银行'
 ]
 
+const tempSelectedBank = ref('')
+
 const resetBankCardForm = () => {
   bankCardForm.value = {
     bank_name: '',
@@ -377,8 +387,24 @@ const resetAlipayForm = () => {
   alipayFiles.value = []
 }
 
-const selectBank = (bank) => {
-  bankCardForm.value.bank_name = bank || ''
+const openBankPicker = () => {
+  const current = bankCardForm.value.bank_name
+  if (current && bankOptions.includes(current)) {
+    tempSelectedBank.value = current
+  } else {
+    tempSelectedBank.value = bankOptions[0] || ''
+  }
+  showBankPicker.value = true
+}
+
+const onCancelBank = () => {
+  showBankPicker.value = false
+}
+
+const onConfirmBank = () => {
+  if (tempSelectedBank.value) {
+    bankCardForm.value.bank_name = tempSelectedBank.value
+  }
   showBankPicker.value = false
 }
 
@@ -728,5 +754,48 @@ onMounted(() => {
 .popup-header h3 {
   margin: 0;
   font-size: 18px;
+}
+
+.bank-picker-popup {
+  background-color: #fff;
+}
+
+.bank-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.bank-picker-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.bank-picker-btn {
+  color: #969799;
+}
+
+.bank-picker-btn.primary {
+  color: #1989fa;
+}
+
+.bank-picker-list {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.bank-picker-item {
+  text-align: center;
+  padding: 10px 0;
+  font-size: 16px;
+  color: #323233;
+}
+
+.bank-picker-item.active {
+  color: #1989fa;
+  font-weight: 500;
 }
 </style>

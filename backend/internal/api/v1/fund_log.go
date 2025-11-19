@@ -20,8 +20,29 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"suxin/internal/appctx"
+	"suxin/internal/model"
 	"suxin/internal/repository"
 )
+
+// FundLogResponse 前端资金流水响应结构，增加了订单信息字段
+type FundLogResponse struct {
+	ID              uint      `json:"ID"`
+	UserID          uint      `json:"UserID"`
+	Type            string    `json:"Type"`
+	Amount          float64   `json:"Amount"`
+	AvailableBefore float64   `json:"AvailableBefore"`
+	AvailableAfter  float64   `json:"AvailableAfter"`
+	UsedBefore      float64   `json:"UsedBefore"`
+	UsedAfter       float64   `json:"UsedAfter"`
+	RelatedID       uint      `json:"RelatedID"`
+	RelatedType     string    `json:"RelatedType"`
+	Note            string    `json:"Note"`
+	CreatedAt       time.Time `json:"CreatedAt"`
+
+	// 额外补充的字段：用于前端“补定金”Tab 的料单筛选与详情
+	OrderID   string `json:"OrderID,omitempty"`
+	OrderType string `json:"OrderType,omitempty"`
+}
 
 /**
  * RegisterFundLogRoutes 注册资金流水路由
@@ -36,6 +57,7 @@ import (
  */
 func RegisterFundLogRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	fundLogRepo := repository.NewFundLogRepository(ctx.DB)
+	orderRepo := repository.NewOrderRepository(ctx.DB)
 	
 	/**
 	 * GET /fund-logs - 查询资金流水
@@ -61,7 +83,7 @@ func RegisterFundLogRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 		
-		var logs interface{}
+		var logs []*model.FundLog
 		var err error
 		
 		// 根据参数选择查询方式
@@ -82,8 +104,53 @@ func RegisterFundLogRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			return
 		}
 		
+		// 构造响应结构，针对补定金流水附加订单信息
+		responses := make([]FundLogResponse, 0, len(logs))
+		orderCache := make(map[uint]*model.Order)
+		
+		for _, log := range logs {
+			if log == nil {
+				continue
+			}
+			resp := FundLogResponse{
+				ID:              log.ID,
+				UserID:          log.UserID,
+				Type:            log.Type,
+				Amount:          log.Amount,
+				AvailableBefore: log.AvailableBefore,
+				AvailableAfter:  log.AvailableAfter,
+				UsedBefore:      log.UsedBefore,
+				UsedAfter:       log.UsedAfter,
+				RelatedID:       log.RelatedID,
+				RelatedType:     log.RelatedType,
+				Note:            log.Note,
+				CreatedAt:       log.CreatedAt,
+			}
+			
+			// 对补定金流水增加 OrderID / OrderType
+			if log.Type == "supplement" && log.RelatedType == "order" && log.RelatedID > 0 {
+				// 复用缓存，避免重复查库
+				order, ok := orderCache[log.RelatedID]
+				if !ok {
+					order, err = orderRepo.FindByID(log.RelatedID)
+					if err != nil {
+						// 单条失败不影响整体，记录错误即可
+						order = nil
+					} else {
+						orderCache[log.RelatedID] = order
+					}
+				}
+				if order != nil {
+					resp.OrderID = order.OrderID
+					resp.OrderType = order.Type
+				}
+			}
+			
+			responses = append(responses, resp)
+		}
+		
 		c.JSON(http.StatusOK, gin.H{
-			"logs": logs,
+			"logs": responses,
 		})
 	})
 	
