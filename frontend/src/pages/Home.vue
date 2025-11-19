@@ -130,15 +130,16 @@ const loadOrders = async () => {
       params.status = activeTab.value
     }
     
-    const { data } = await request.get(API_ENDPOINTS.ORDERS, { params })
+    const data = await request.get(API_ENDPOINTS.ORDERS, { params })
+    const list = data.orders || data.list || []
     
     if (page.value === 1) {
-      orders.value = data.list || []
+      orders.value = list
     } else {
-      orders.value.push(...(data.list || []))
+      orders.value.push(...list)
     }
     
-    if (!data.list || data.list.length < 10) {
+    if (list.length < 10) {
       finished.value = true
     } else {
       page.value++

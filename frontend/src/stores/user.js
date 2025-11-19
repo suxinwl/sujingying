@@ -142,6 +142,7 @@ export const useUserStore = defineStore('user', {
      * @description 提交注册请求，需等待审核
      */
     async register(userData) {
+      // 直接透传给后端，后端现在要求包含 verification 字段
       return await request.post(API_ENDPOINTS.REGISTER, userData)
     },
     

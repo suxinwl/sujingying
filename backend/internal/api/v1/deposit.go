@@ -27,11 +27,13 @@ type submitDepositReq struct {
 	Amount     float64 `json:"amount" binding:"required,gt=0"`
 	Method     string  `json:"method" binding:"required"`
 	VoucherURL string  `json:"voucher_url"`
+	Note       string  `json:"note"` // 用户备注
 }
 
 type reviewDepositReq struct {
-	Action string `json:"action" binding:"required,oneof=approve reject"`
-	Note   string `json:"note"`
+	Action          string `json:"action" binding:"required,oneof=approve reject"`
+	Note            string `json:"note"`
+	ReceiptVoucher  string `json:"receipt_voucher"` // 管理员收款凭证（Base64或URL）
 }
 
 /**
@@ -49,6 +51,7 @@ type reviewDepositReq struct {
  */
 func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	depositSvc := service.NewDepositService(ctx)
+	withdrawSvc := service.NewWithdrawService(ctx)
 	
 	/**
 	 * POST /deposits - 提交充值申请
@@ -77,7 +80,7 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		
 		userID := c.GetUint("user_id")
 		
-		deposit, err := depositSvc.SubmitDeposit(userID, req.Amount, req.Method, req.VoucherURL)
+		deposit, err := depositSvc.SubmitDeposit(userID, req.Amount, req.Method, req.VoucherURL, req.Note)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -135,8 +138,19 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	
 	admin.GET("/deposits/pending", func(c *gin.Context) {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+		status := c.Query("status")
 		
-		deposits, err := depositSvc.GetPendingDeposits(limit)
+		var deposits interface{}
+		var err error
+		
+		if status != "" {
+			// 根据状态查询
+			deposits, err = depositSvc.GetDepositsByStatus(status, limit)
+		} else {
+			// 默认查询待审核
+			deposits, err = depositSvc.GetPendingDeposits(limit)
+		}
+		
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -144,7 +158,6 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		
 		c.JSON(http.StatusOK, gin.H{
 			"deposits": deposits,
-			"total":    len(deposits),
 		})
 	})
 	
@@ -179,7 +192,7 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		reviewerID := c.GetUint("user_id")
 		
 		if req.Action == "approve" {
-			err = depositSvc.ApproveDeposit(uint(depositID), reviewerID, req.Note)
+			err = depositSvc.ApproveDeposit(uint(depositID), reviewerID, req.Note, req.ReceiptVoucher)
 		} else {
 			err = depositSvc.RejectDeposit(uint(depositID), reviewerID, req.Note)
 		}
@@ -193,11 +206,36 @@ func RegisterDepositRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			"message": "审核成功",
 		})
 	})
+
+	// POST /withdraws/:id/pay - 标记提现已打款并上传打款凭证（管理员）
+	admin.POST("/withdraws/:id/pay", func(c *gin.Context) {
+		withdrawID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的提现ID"})
+			return
+		}
+
+		var req struct {
+			VoucherURL string `json:"voucher_url" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+
+		if err := withdrawSvc.MarkWithdrawPaid(uint(withdrawID), req.VoucherURL); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "标记打款成功"})
+	})
 }
 
 type submitWithdrawReq struct {
 	BankCardID uint    `json:"bank_card_id" binding:"required"`
 	Amount     float64 `json:"amount" binding:"required,gt=0"`
+	Note       string  `json:"note"` // 用户提现备注
 }
 
 type reviewWithdrawReq struct {
@@ -231,7 +269,7 @@ func RegisterWithdrawRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		
 		userID := c.GetUint("user_id")
 		
-		withdraw, err := withdrawSvc.SubmitWithdraw(userID, req.BankCardID, req.Amount)
+		withdraw, err := withdrawSvc.SubmitWithdraw(userID, req.BankCardID, req.Amount, req.Note)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
@@ -268,11 +306,20 @@ func RegisterWithdrawRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	// 管理员权限路由组
 	admin := rg.Group("", middleware.RequireAdmin(ctx))
 	
-	// GET /withdraws/pending - 查询待审核列表（管理员）
+	// GET /withdraws/pending - 查询提现列表（管理员，可按状态过滤）
 	admin.GET("/withdraws/pending", func(c *gin.Context) {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+		status := c.Query("status")
 		
-		withdraws, err := withdrawSvc.GetPendingWithdraws(limit)
+		var withdraws interface{}
+		var err error
+		
+		if status != "" {
+			withdraws, err = withdrawSvc.GetWithdrawsByStatus(status, limit)
+		} else {
+			withdraws, err = withdrawSvc.GetPendingWithdraws(limit)
+		}
+		
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -280,7 +327,6 @@ func RegisterWithdrawRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		
 		c.JSON(http.StatusOK, gin.H{
 			"withdraws": withdraws,
-			"total":     len(withdraws),
 		})
 	})
 	

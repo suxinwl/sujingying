@@ -69,7 +69,7 @@ func (r *NotificationRepository) FindByID(id uint) (*model.Notification, error) 
  */
 func (r *NotificationRepository) FindByUserID(userID uint, limit, offset int) ([]*model.Notification, error) {
 	var notifications []*model.Notification
-	err := r.db.Where("user_id = ?", userID).
+	err := r.db.Where("user_id = ? OR (user_id = 0 AND type = ?)", userID, model.NotifyTypeAnnounce).
 		Order("created_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -106,6 +106,25 @@ func (r *NotificationRepository) CountUnreadByUserID(userID uint) (int64, error)
 }
 
 /**
+ * FindAnnouncements 查询平台公告列表
+ * 
+ * 公告使用 Notification 表中 type=announce 且 user_id=0 的记录。
+ * 
+ * @param limit int - 查询数量限制
+ * @param offset int - 偏移量
+ * @return ([]*model.Notification, error)
+ */
+func (r *NotificationRepository) FindAnnouncements(limit, offset int) ([]*model.Notification, error) {
+	var notifications []*model.Notification
+	err := r.db.Where("type = ? AND user_id = 0", model.NotifyTypeAnnounce).
+		Order("created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&notifications).Error
+	return notifications, err
+}
+
+/**
  * Update 更新通知
  * 
  * @param notification *model.Notification - 通知实体
@@ -127,7 +146,7 @@ func (r *NotificationRepository) MarkAsRead(ids []uint, userID uint) error {
 		Where("id IN ? AND user_id = ?", ids, userID).
 		Updates(map[string]interface{}{
 			"status":  model.NotifyStatusRead,
-			"read_at": gorm.Expr("NOW()"),
+			"read_at": r.db.NowFunc(),
 		}).Error
 }
 
@@ -154,7 +173,7 @@ func (r *NotificationRepository) MarkAllAsRead(userID uint) error {
 		Where("user_id = ? AND status != ?", userID, model.NotifyStatusRead).
 		Updates(map[string]interface{}{
 			"status":  model.NotifyStatusRead,
-			"read_at": gorm.Expr("NOW()"),
+			"read_at": r.db.NowFunc(),
 		}).Error
 }
 

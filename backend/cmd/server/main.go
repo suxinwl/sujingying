@@ -16,6 +16,7 @@ import (
 	"suxin/internal/api/v1"
 	"suxin/internal/middleware"
 	"suxin/internal/scheduler"
+	"suxin/internal/service"
 	ws "suxin/internal/websocket"
 	
 	"github.com/gorilla/websocket"
@@ -49,6 +50,7 @@ func main() {
 	notificationHub := ws.NewNotificationHub()
 	go notificationHub.Run()
 	log.Println("[Main] ✅ WebSocket通知推送中心已启动")
+	service.SetDefaultNotificationHub(notificationHub)
 
 	// 启动风控调度器（60秒间隔，使用WebSocket价格）
 	riskScheduler := scheduler.NewRiskScheduler(app, 60, quoteHub)

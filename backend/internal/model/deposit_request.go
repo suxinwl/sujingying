@@ -48,16 +48,20 @@ const (
  * - ReviewerID: 审核人ID
  * - ReviewNote: 审核备注
  * - ReviewedAt: 审核时间
+ * - User: 关联的用户信息
  */
 type DepositRequest struct {
-	ID          uint           `gorm:"primarykey"`
-	UserID      uint           `gorm:"index;not null"`                           // 用户ID
-	Amount      float64        `gorm:"type:decimal(15,2);not null"`              // 充值金额
-	Method      string         `gorm:"type:varchar(20);not null"`                // 充值方式
-	VoucherURL  string         `gorm:"type:varchar(500)"`                        // 凭证URL
-	Status      string         `gorm:"type:varchar(20);index;default:'pending'"` // 状态
-	ReviewerID  uint           `gorm:"default:0"`                                // 审核人ID
-	ReviewNote  string         `gorm:"type:varchar(500)"`                        // 审核备注
+	ID          uint           `gorm:"primarykey" json:"id"`
+	UserID      uint           `gorm:"index;not null" json:"user_id"`                           // 用户ID
+	Amount      float64        `gorm:"type:decimal(15,2);not null" json:"amount"`              // 充值金额
+	Method      string         `gorm:"type:varchar(20);not null" json:"method"`                // 充值方式
+	VoucherURL  string         `gorm:"type:longtext" json:"voucher_url"`                        // 用户付款凭证（支持多张，逗号分隔）
+	UserNote    string         `gorm:"type:varchar(500)" json:"user_note"`                     // 用户备注
+	Status      string         `gorm:"type:varchar(20);index;default:'pending'" json:"status"` // 状态
+	ReviewerID  uint           `gorm:"default:0" json:"reviewer_id"`                                // 审核人ID
+	ReviewNote  string         `gorm:"type:varchar(500)" json:"review_note"`                        // 审核备注
+	ReceiptVoucherURL string   `gorm:"type:longtext" json:"receipt_voucher"`                   // 管理员收款凭证
+	User        *User          `gorm:"foreignKey:UserID" json:"user,omitempty"`                // 关联用户
 	ReviewedAt  *time.Time     // 审核时间
 	CreatedAt   time.Time      `gorm:"index"`
 	UpdatedAt   time.Time

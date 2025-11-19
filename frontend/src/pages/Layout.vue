@@ -3,8 +3,8 @@
     <router-view />
     
     <van-tabbar v-model="active" route>
-      <van-tabbar-item replace to="/home" icon="home-o">
-        首页
+      <van-tabbar-item replace to="/quotes" icon="bar-chart-o">
+        行情
       </van-tabbar-item>
       <van-tabbar-item replace to="/trade" icon="exchange">
         交易

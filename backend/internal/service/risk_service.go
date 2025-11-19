@@ -281,6 +281,20 @@ func (s *RiskService) RunRiskCheck(currentPrice float64) error {
 		}
 	}
 
+	// 6. 向客服/管理员发送风控汇总通知，便于管理员在“消息通知”中查看整体风险情况
+	if len(result.NeedForceClose) > 0 || len(result.HighRisk) > 0 || len(result.Warning) > 0 {
+		summary := fmt.Sprintf(
+			"风控检查完成：强平 %d 单，高风险 %d 单，预警 %d 单",
+			len(result.NeedForceClose), len(result.HighRisk), len(result.Warning),
+		)
+		level := model.NotifyLevelInfo
+		if len(result.NeedForceClose) > 0 || len(result.HighRisk) > 0 {
+			level = model.NotifyLevelWarning
+		}
+		// 异步发送，避免阻塞风控流程
+		go s.notiSvc.SendSystemNotificationToAdmins("风控检查预警", summary, level)
+	}
+
 	return nil
 }
 

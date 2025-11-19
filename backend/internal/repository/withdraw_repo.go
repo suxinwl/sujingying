@@ -49,8 +49,21 @@ func (r *WithdrawRepository) FindByUserID(userID uint, limit, offset int) ([]*mo
 
 func (r *WithdrawRepository) FindPending(limit int) ([]*model.WithdrawRequest, error) {
 	var withdraws []*model.WithdrawRequest
-	err := r.db.Where("status = ?", model.WithdrawStatusPending).
+	err := r.db.Preload("User").Where("status = ?", model.WithdrawStatusPending).
 		Order("created_at ASC").
+		Limit(limit).
+		Find(&withdraws).Error
+	return withdraws, err
+}
+
+// FindByStatus 根据状态查询提现申请
+func (r *WithdrawRepository) FindByStatus(status string, limit int) ([]*model.WithdrawRequest, error) {
+	var withdraws []*model.WithdrawRequest
+	query := r.db.Preload("User")
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	err := query.Order("created_at DESC").
 		Limit(limit).
 		Find(&withdraws).Error
 	return withdraws, err

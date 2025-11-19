@@ -56,9 +56,10 @@ func NewDepositService(ctx *appctx.AppContext) *DepositService {
  * @param amount float64 - 充值金额
  * @param method string - 充值方式
  * @param voucherURL string - 凭证URL
+ * @param note string - 用户备注
  * @return (*model.DepositRequest, error)
  */
-func (s *DepositService) SubmitDeposit(userID uint, amount float64, method, voucherURL string) (*model.DepositRequest, error) {
+func (s *DepositService) SubmitDeposit(userID uint, amount float64, method, voucherURL, note string) (*model.DepositRequest, error) {
 	// 验证参数
 	if amount <= 0 {
 		return nil, errors.New("充值金额必须大于0")
@@ -70,6 +71,7 @@ func (s *DepositService) SubmitDeposit(userID uint, amount float64, method, vouc
 		Amount:     amount,
 		Method:     method,
 		VoucherURL: voucherURL,
+		UserNote:   note,
 		Status:     model.DepositStatusPending,
 	}
 	
@@ -95,9 +97,10 @@ func (s *DepositService) SubmitDeposit(userID uint, amount float64, method, vouc
  * @param depositID uint - 充值申请ID
  * @param reviewerID uint - 审核人ID
  * @param note string - 审核备注
+ * @param receiptVoucher string - 管理员收款凭证
  * @return error
  */
-func (s *DepositService) ApproveDeposit(depositID, reviewerID uint, note string) error {
+func (s *DepositService) ApproveDeposit(depositID, reviewerID uint, note, receiptVoucher string) error {
 	// 1. 查找充值申请
 	deposit, err := s.depositRepo.FindByID(depositID)
 	if err != nil {
@@ -149,7 +152,10 @@ func (s *DepositService) ApproveDeposit(depositID, reviewerID uint, note string)
 		return errors.New("记录资金流水失败")
 	}
 	
-	// 7. 更新申请状态
+	// 7. 更新申请状态和收款凭证
+	if receiptVoucher != "" {
+		deposit.ReceiptVoucherURL = receiptVoucher
+	}
 	deposit.Approve(reviewerID, note)
 	if err := tx.Save(deposit).Error; err != nil {
 		tx.Rollback()
@@ -223,4 +229,15 @@ func (s *DepositService) GetUserDeposits(userID uint, limit, offset int) ([]*mod
  */
 func (s *DepositService) GetPendingDeposits(limit int) ([]*model.DepositRequest, error) {
 	return s.depositRepo.FindPending(limit)
+}
+
+/**
+ * GetDepositsByStatus 根据状态获取充值申请
+ * 
+ * @param status string - 状态
+ * @param limit int - 查询数量限制
+ * @return ([]*model.DepositRequest, error)
+ */
+func (s *DepositService) GetDepositsByStatus(status string, limit int) ([]*model.DepositRequest, error) {
+	return s.depositRepo.FindByStatus(status, limit)
 }

@@ -158,7 +158,7 @@ func (s *BankCardService) SetDefaultCard(userID uint, cardID uint) error {
  * 业务流程：
  * 1. 查找银行卡
  * 2. 验证归属
- * 3. 如果是默认卡，提示先设置其他默认卡
+ * 3. 如果是默认卡且不是唯一的卡，提示先设置其他默认卡
  * 4. 删除银行卡
  * 
  * @param userID uint - 用户ID
@@ -177,9 +177,17 @@ func (s *BankCardService) DeleteCard(userID uint, cardID uint) error {
 		return errors.New("无权操作此银行卡")
 	}
 	
-	// 3. 如果是默认卡，提示错误
+	// 3. 如果是默认卡，检查是否还有其他卡
 	if card.IsDefault {
-		return errors.New("请先将其他银行卡设为默认卡")
+		count, err := s.cardRepo.CountByUserID(userID)
+		if err != nil {
+			return err
+		}
+		// 如果不是唯一的卡，需要先设置其他卡为默认
+		if count > 1 {
+			return errors.New("请先将其他银行卡设为默认卡")
+		}
+		// 如果是唯一的卡，可以直接删除
 	}
 	
 	// 4. 删除

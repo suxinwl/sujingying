@@ -58,5 +58,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&model.InvitationCode{},
 		&model.InvitationRecord{},
 		&model.TeamRelation{},
+		&model.UserVerification{},
 	)
 }

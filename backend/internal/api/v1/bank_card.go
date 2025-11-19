@@ -79,6 +79,19 @@ func RegisterBankCardRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		c.JSON(http.StatusOK, gin.H{"cards": cards})
 	})
 	
+	// PUT /bank-cards/:id/default - 设置默认银行卡
+	rg.PUT("/bank-cards/:id/default", func(c *gin.Context) {
+		cardID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+		userID := c.GetUint("user_id")
+		
+		if err := cardSvc.SetDefaultCard(userID, uint(cardID)); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		
+		c.JSON(http.StatusOK, gin.H{"message": "已设为默认银行卡"})
+	})
+	
 	// DELETE /bank-cards/:id - 删除银行卡
 	rg.DELETE("/bank-cards/:id", func(c *gin.Context) {
 		cardID, _ := strconv.ParseUint(c.Param("id"), 10, 32)

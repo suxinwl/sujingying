@@ -47,9 +47,10 @@ func NewWithdrawService(ctx *appctx.AppContext) *WithdrawService {
  * @param userID uint - 用户ID
  * @param bankCardID uint - 银行卡ID
  * @param amount float64 - 提现金额
+ * @param note string - 用户备注
  * @return (*model.WithdrawRequest, error)
  */
-func (s *WithdrawService) SubmitWithdraw(userID, bankCardID uint, amount float64) (*model.WithdrawRequest, error) {
+func (s *WithdrawService) SubmitWithdraw(userID, bankCardID uint, amount float64, note string) (*model.WithdrawRequest, error) {
 	// 1. 验证提现金额
 	if amount <= 0 {
 		return nil, errors.New("提现金额必须大于0")
@@ -86,6 +87,7 @@ func (s *WithdrawService) SubmitWithdraw(userID, bankCardID uint, amount float64
 		Amount:       amount,
 		Fee:          fee,
 		ActualAmount: actualAmount,
+		UserNote:     note,
 		Status:       model.WithdrawStatusPending,
 	}
 
@@ -182,6 +184,34 @@ func (s *WithdrawService) ApproveWithdraw(withdrawID, reviewerID uint, note stri
 }
 
 /**
+ * MarkWithdrawPaid 标记提现已打款并保存打款凭证
+ *
+ * @param withdrawID uint - 提现ID
+ * @param voucherURL string - 打款凭证（Base64或URL）
+ * @return error
+ */
+func (s *WithdrawService) MarkWithdrawPaid(withdrawID uint, voucherURL string) error {
+	withdraw, err := s.withdrawRepo.FindByID(withdrawID)
+	if err != nil {
+		return errors.New("提现申请不存在")
+	}
+
+	if !withdraw.IsApproved() {
+		return errors.New("只有已通过的提现才能标记为已打款")
+	}
+
+	withdraw.MarkAsPaid(voucherURL)
+	if err := s.withdrawRepo.Update(withdraw); err != nil {
+		return fmt.Errorf("更新提现状态失败: %v", err)
+	}
+
+	notifyMsg := fmt.Sprintf("您的提现已打款\n提现金额：%.2f 元", withdraw.Amount)
+	s.notiSvc.SendFundNotification(withdraw.UserID, "提现已打款", notifyMsg)
+
+	return nil
+}
+
+/**
  * RejectWithdraw 驳回提现
  * 
  * @param withdrawID uint - 提现ID
@@ -223,4 +253,15 @@ func (s *WithdrawService) GetUserWithdraws(userID uint, limit, offset int) ([]*m
  */
 func (s *WithdrawService) GetPendingWithdraws(limit int) ([]*model.WithdrawRequest, error) {
 	return s.withdrawRepo.FindPending(limit)
+}
+
+/**
+ * GetWithdrawsByStatus 根据状态获取提现申请
+ *
+ * @param status string - 状态
+ * @param limit int - 查询数量限制
+ * @return ([]*model.WithdrawRequest, error)
+ */
+func (s *WithdrawService) GetWithdrawsByStatus(status string, limit int) ([]*model.WithdrawRequest, error) {
+	return s.withdrawRepo.FindByStatus(status, limit)
 }

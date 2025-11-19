@@ -13,11 +13,16 @@ import (
 func AuthRequired(ctx *appctx.AppContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
-		if auth == "" || !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
-			return
+		var token string
+		if auth != "" && strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+			token = strings.TrimSpace(auth[len("Bearer "):])
+		} else {
+			token = c.Query("token")
+			if token == "" {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
+				return
+			}
 		}
-		token := strings.TrimSpace(auth[len("Bearer "):])
 		claims, err := jwtx.Parse(token, ctx.Config.Auth.JWTSecret)
 		if err != nil || claims.Typ != "access" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})

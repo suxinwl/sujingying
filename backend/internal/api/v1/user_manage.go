@@ -46,6 +46,10 @@ type approveUserReq struct {
 	Note   string `json:"note"` // 审核备注
 }
 
+type verifyAuditReq struct {
+	Remark string `json:"remark"`
+}
+
 /**
  * RegisterUserManageRoutes 注册用户管理路由(需管理员权限)
  * 
@@ -69,8 +73,10 @@ func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	 * 查询参数：
 	 * - role: 角色筛选
 	 * - sales_id: 销售ID筛选
-	 * - limit: 每页数量(默认20)
-	 * - offset: 偏移量(默认0)
+	 * - status: 用户状态筛选（pending/active/disabled）
+	 * - phone: 手机号模糊查询
+	 * - limit, offset: 分页参数（可选）
+	 * - page, page_size: 分页参数（可选，优先于 limit/offset）
 	 * 
 	 * 响应：
 	 * {
@@ -81,11 +87,27 @@ func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	admin.GET("/users", func(c *gin.Context) {
 		role := c.Query("role")
 		salesIDStr := c.Query("sales_id")
+		status := c.Query("status")
+		phone := c.Query("phone")
+		
+		// 默认使用 limit/offset
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
 		offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 		
+		// 如果提供了 page/page_size，则优先使用 page 分页
+		if pageStr := c.Query("page"); pageStr != "" {
+			if pageSizeStr := c.Query("page_size"); pageSizeStr != "" {
+				if page, err := strconv.Atoi(pageStr); err == nil {
+					if pageSize, err2 := strconv.Atoi(pageSizeStr); err2 == nil && page > 0 && pageSize > 0 {
+						limit = pageSize
+						offset = (page - 1) * pageSize
+					}
+				}
+			}
+		}
+		
 		var users []*model.User
-		var err error
+		var total int64
 		
 		query := ctx.DB.Model(&model.User{})
 		
@@ -100,31 +122,95 @@ func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			query = query.Where("sales_id = ?", salesID)
 		}
 		
-		// 分页查询
-		err = query.Limit(limit).Offset(offset).Find(&users).Error
-		if err != nil {
+		// 状态筛选
+		if status != "" {
+			query = query.Where("status = ?", status)
+		}
+		
+		// 手机号模糊查询
+		if phone != "" {
+			query = query.Where("phone LIKE ?", "%"+phone+"%")
+		}
+		
+		// 先统计总数
+		if err := query.Count(&total).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		
+		// 再做分页查询
+		if err := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&users).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// 查询实名认证状态映射
+		verifyStatusMap := make(map[uint]string)
+		if len(users) > 0 {
+			var userIDs []uint
+			for _, u := range users {
+				userIDs = append(userIDs, u.ID)
+			}
+			var vers []model.UserVerification
+			if err := ctx.DB.Where("user_id IN ?", userIDs).Find(&vers).Error; err == nil {
+				for _, v := range vers {
+					verifyStatusMap[v.UserID] = v.Status
+				}
+			}
+		}
+		
+		// 查询上级销售员姓名映射
+		salesNameMap := make(map[uint]string)
+		var salesIDs []uint
+		for _, u := range users {
+			if u.SalesID != 0 {
+				found := false
+				for _, id := range salesIDs {
+					if id == u.SalesID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					salesIDs = append(salesIDs, u.SalesID)
+				}
+			}
+		}
+		if len(salesIDs) > 0 {
+			var salesUsers []model.User
+			if err := ctx.DB.Where("id IN ?", salesIDs).Find(&salesUsers).Error; err == nil {
+				for _, su := range salesUsers {
+					name := su.RealName
+					if name == "" {
+						name = su.Phone
+					}
+					salesNameMap[su.ID] = name
+				}
+			}
+		}
+		
 		// 脱敏处理(移除密码)
-		result := make([]map[string]interface{}, 0)
+		result := make([]map[string]interface{}, 0, len(users))
 		for _, user := range users {
 			result = append(result, map[string]interface{}{
-				"id":                user.ID,
-				"phone":             user.Phone,
-				"role":              user.Role,
-				"sales_id":          user.SalesID,
-				"available_deposit": user.AvailableDeposit,
-				"used_deposit":      user.UsedDeposit,
-				"has_pay_password":  user.HasPayPassword,
-				"created_at":        user.CreatedAt,
+				"id":                      user.ID,
+				"phone":                   user.Phone,
+				"realname":                user.RealName,
+				"role":                    user.Role,
+				"status":                  user.Status,
+				"verify_status":           verifyStatusMap[user.ID],
+				"sales_id":                user.SalesID,
+				"sales_name":              salesNameMap[user.SalesID],
+				"available_deposit":       user.AvailableDeposit,
+				"used_deposit":            user.UsedDeposit,
+				"has_pay_password":        user.HasPayPassword,
+				"auto_supplement_enabled": user.AutoSupplementEnabled,
+				"created_at":              user.CreatedAt,
 			})
 		}
 		
 		c.JSON(http.StatusOK, gin.H{
 			"users": result,
-			"total": len(result),
+			"total": total,
 		})
 	})
 	
@@ -443,5 +529,122 @@ func RegisterUserManageRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			"users": userList,
 			"total": total,
 		})
+	})
+
+	// 获取指定用户的实名认证信息
+	admin.GET("/users/:id/verification", func(c *gin.Context) {
+		userID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil || userID == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+			return
+		}
+		verificationRepo := repository.NewUserVerificationRepository(ctx.DB)
+		v, err := verificationRepo.FindByUserID(uint(userID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询实名认证信息失败"})
+			return
+		}
+		if v == nil {
+			c.JSON(http.StatusOK, gin.H{"verification": nil})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"verification": gin.H{
+				"id":             v.ID,
+				"user_id":        v.UserID,
+				"real_name":      v.RealName,
+				"id_number":      v.IDNumber,
+				"id_front_url":   v.IDFrontURL,
+				"id_back_url":    v.IDBackURL,
+				"bank_card_id":   v.BankCardID,
+				"receiver_name":  v.ReceiverName,
+				"receiver_phone": v.ReceiverPhone,
+				"province":       v.Province,
+				"city":           v.City,
+				"district":       v.District,
+				"address_detail": v.AddressDetail,
+				"status":         v.Status,
+				"remark":         v.Remark,
+				"auditor_id":     v.AuditorID,
+			},
+		})
+	})
+
+	// 审核通过实名认证
+	admin.POST("/users/:id/verification/approve", func(c *gin.Context) {
+		userID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil || userID == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+			return
+		}
+		var req verifyAuditReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+		verificationRepo := repository.NewUserVerificationRepository(ctx.DB)
+		v, err := verificationRepo.FindByUserID(uint(userID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询实名认证信息失败"})
+			return
+		}
+		if v == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "用户未提交实名认证信息"})
+			return
+		}
+		if v.Status != model.VerificationStatusPending {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "当前状态不可审核"})
+			return
+		}
+		v.Status = model.VerificationStatusApproved
+		v.Remark = req.Remark
+		v.AuditorID = c.GetUint("user_id")
+		if err := verificationRepo.Update(v); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新实名认证状态失败"})
+			return
+		}
+		// 同步更新用户表中的真实姓名
+		if err := ctx.DB.Model(&model.User{}).Where("id = ?", userID).
+			Update("real_name", v.RealName).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新用户信息失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "实名认证审核通过"})
+	})
+
+	// 驳回实名认证
+	admin.POST("/users/:id/verification/reject", func(c *gin.Context) {
+		userID, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil || userID == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的用户ID"})
+			return
+		}
+		var req verifyAuditReq
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+			return
+		}
+		verificationRepo := repository.NewUserVerificationRepository(ctx.DB)
+		v, err := verificationRepo.FindByUserID(uint(userID))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "查询实名认证信息失败"})
+			return
+		}
+		if v == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "用户未提交实名认证信息"})
+			return
+		}
+		if v.Status != model.VerificationStatusPending {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "当前状态不可审核"})
+			return
+		}
+		v.Status = model.VerificationStatusRejected
+		v.Remark = req.Remark
+		v.AuditorID = c.GetUint("user_id")
+		if err := verificationRepo.Update(v); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "更新实名认证状态失败"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "实名认证已驳回"})
 	})
 }

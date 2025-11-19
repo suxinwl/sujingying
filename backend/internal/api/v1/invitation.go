@@ -13,10 +13,12 @@
 package v1
 
 import (
+	"encoding/base64"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/skip2/go-qrcode"
 
 	"suxin/internal/appctx"
 	"suxin/internal/service"
@@ -48,19 +50,27 @@ func RegisterInvitationRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 	rg.GET("/invitation/my-code", func(c *gin.Context) {
 		userID := c.GetUint("user_id")
 		
-		code, err := invitationSvc.GetMyInvitationCode(userID)
+		invCode, err := invitationSvc.GetMyInvitationCode(userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		
 		// 构建分享URL（可配置）
-		shareURL := "https://app.suxinying.com/register?code=" + code
+		shareURL := "https://app.suxinying.com/register?code=" + invCode.Code
+		// 生成二维码（PNG）并转为 data URL，便于前端直接展示
+		var qrDataURL string
+		if png, err := qrcode.Encode(shareURL, qrcode.Medium, 256); err == nil {
+			b64 := base64.StdEncoding.EncodeToString(png)
+			qrDataURL = "data:image/png;base64," + b64
+		}
 		
 		c.JSON(http.StatusOK, gin.H{
-			"code":      code,
-			"share_url": shareURL,
-			"qr_code":   "", // TODO: 生成二维码
+			"code":           invCode.Code,
+			"invite_count":   invCode.InviteCount,
+			"register_count": invCode.RegisterCount,
+			"share_url":      shareURL,
+			"qr_code":        qrDataURL,
 		})
 	})
 	

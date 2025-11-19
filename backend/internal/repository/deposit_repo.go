@@ -85,8 +85,27 @@ func (r *DepositRepository) FindByUserID(userID uint, limit, offset int) ([]*mod
  */
 func (r *DepositRepository) FindPending(limit int) ([]*model.DepositRequest, error) {
 	var deposits []*model.DepositRequest
-	err := r.db.Where("status = ?", model.DepositStatusPending).
+	err := r.db.Preload("User").Where("status = ?", model.DepositStatusPending).
 		Order("created_at ASC").
+		Limit(limit).
+		Find(&deposits).Error
+	return deposits, err
+}
+
+/**
+ * FindByStatus 根据状态查询充值申请
+ * 
+ * @param status string - 状态
+ * @param limit int - 查询数量限制
+ * @return ([]*model.DepositRequest, error)
+ */
+func (r *DepositRepository) FindByStatus(status string, limit int) ([]*model.DepositRequest, error) {
+	var deposits []*model.DepositRequest
+	query := r.db.Preload("User")
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	err := query.Order("created_at DESC").
 		Limit(limit).
 		Find(&deposits).Error
 	return deposits, err

@@ -108,26 +108,31 @@ func (s *InvitationService) generateUniqueCode() (string, error) {
 }
 
 /**
- * GetMyInvitationCode 获取我的邀请码（仅销售可获取）
+ * GetMyInvitationCode 获取我的邀请码（仅销售可获取），返回完整实体
  */
-func (s *InvitationService) GetMyInvitationCode(userID uint) (string, error) {
+func (s *InvitationService) GetMyInvitationCode(userID uint) (*model.InvitationCode, error) {
 	// 1. 验证用户角色
 	user, err := s.userRepo.FindByID(userID)
 	if err != nil {
-		return "", errors.New("用户不存在")
+		return nil, errors.New("用户不存在")
 	}
 	
 	if user.Role != "sales" {
-		return "", errors.New("只有销售人员可以拥有邀请码")
+		return nil, errors.New("只有销售人员可以拥有邀请码")
 	}
 	
 	// 2. 查找现有邀请码
 	code, err := s.invitationRepo.FindInvitationCodeByUserID(userID)
 	if err != nil {
 		// 如果没有邀请码，自动生成一个
-		return s.GenerateInvitationCode(userID)
+		codeStr, genErr := s.GenerateInvitationCode(userID)
+		if genErr != nil {
+			return nil, genErr
+		}
+		// 生成后再查一遍，拿到完整记录
+		return s.invitationRepo.FindInvitationCodeByCode(codeStr)
 	}
-	return code.Code, nil
+	return code, nil
 }
 
 /**

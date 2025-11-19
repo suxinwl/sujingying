@@ -22,6 +22,7 @@ import (
 	"suxin/internal/middleware"
 	"suxin/internal/model"
 	"suxin/internal/repository"
+	"suxin/internal/pkg/response"
 )
 
 type createConfigReq struct {
@@ -35,6 +36,10 @@ type createConfigReq struct {
 type updateConfigReq struct {
 	Value       string `json:"value" binding:"required"`
 	Description string `json:"description"`
+}
+
+type batchUpdateConfigReq struct {
+	Configs map[string]string `json:"configs"`
 }
 
 /**
@@ -179,5 +184,48 @@ func RegisterConfigRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 		c.JSON(http.StatusOK, gin.H{
 			"message": "删除成功",
 		})
+	})
+	
+	/**
+	 * POST /configs/batch - 批量更新配置(超级管理员)
+	 * 用于前端一次性更新多个配置项
+	 */
+	rg.POST("/configs/batch", middleware.RequireSuperAdmin(ctx), func(c *gin.Context) {
+		var req map[string]string
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, "请求参数错误")
+			return
+		}
+		
+		// 批量更新配置
+		updatedCount := 0
+		for key, value := range req {
+			// 查找配置
+			var config model.SystemConfig
+			if err := ctx.DB.Where("`key` = ?", key).First(&config).Error; err != nil {
+				// 配置不存在，创建新配置
+				config = model.SystemConfig{
+					Category:    "system",
+					Key:         key,
+					Value:       value,
+					ValueType:   "string",
+					Description: key,
+				}
+				if err := configRepo.Create(&config); err != nil {
+					continue
+				}
+			} else {
+				// 配置存在，更新值
+				config.Value = value
+				if err := configRepo.Update(&config); err != nil {
+					continue
+				}
+			}
+			updatedCount++
+		}
+		
+		response.SuccessWithMessage(c, gin.H{
+			"updated": updatedCount,
+		}, "配置更新成功")
 	})
 }

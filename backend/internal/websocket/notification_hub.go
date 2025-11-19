@@ -112,17 +112,28 @@ func (h *NotificationHub) Run() {
 			h.mutex.Unlock()
 
 		case message := <-h.broadcast:
-			// 广播消息给指定用户的所有在线设备
+			// 广播消息
 			h.mutex.RLock()
-			if clients, ok := h.clients[message.UserID]; ok {
-				for client := range clients {
-					select {
-					case client.Send <- message.Notification:
-						// 成功发送
-					default:
-						// 发送失败，关闭连接
-						close(client.Send)
-						delete(clients, client)
+			if message.UserID == 0 {
+				for _, clients := range h.clients {
+					for client := range clients {
+						select {
+						case client.Send <- message.Notification:
+						default:
+							close(client.Send)
+							delete(clients, client)
+						}
+					}
+				}
+			} else {
+				if clients, ok := h.clients[message.UserID]; ok {
+					for client := range clients {
+						select {
+						case client.Send <- message.Notification:
+						default:
+							close(client.Send)
+							delete(clients, client)
+						}
 					}
 				}
 			}

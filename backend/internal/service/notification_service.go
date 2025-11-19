@@ -30,6 +30,12 @@ type NotificationService struct {
 	hub      NotificationHubInterface
 }
 
+var defaultNotificationHub NotificationHubInterface
+
+func SetDefaultNotificationHub(hub NotificationHubInterface) {
+	defaultNotificationHub = hub
+}
+
 // NotificationHubInterface 通知Hub接口
 type NotificationHubInterface interface {
 	SendToUser(userID uint, notification *model.Notification)
@@ -46,7 +52,7 @@ func NewNotificationService(ctx *appctx.AppContext) *NotificationService {
 	return &NotificationService{
 		ctx:      ctx,
 		notiRepo: repository.NewNotificationRepository(ctx.DB),
-		hub:      nil, // Hub会在需要时从AppContext中获取
+		hub:      defaultNotificationHub,
 	}
 }
 
@@ -209,6 +215,82 @@ func (s *NotificationService) SendFundNotification(
 }
 
 /**
+ * SendSystemNotificationToAdmins 发送系统通知给所有客服和超级管理员
+ * 
+ * @param title string - 通知标题
+ * @param content string - 通知内容
+ * @param level string - 通知级别（为空则默认为info）
+ * @return error
+ */
+func (s *NotificationService) SendSystemNotificationToAdmins(
+	title, content, level string,
+) error {
+	// 默认级别
+	if level == "" {
+		level = model.NotifyLevelInfo
+	}
+
+	// 查询所有客服和超级管理员
+	var admins []model.User
+	if err := s.ctx.DB.Where("role IN ?", []string{"support", "super_admin"}).
+		Find(&admins).Error; err != nil {
+		return err
+	}
+
+	if len(admins) == 0 {
+		log.Printf("[Notify] ⚠️ 未找到客服/管理员用户，系统通知未发送: %s", title)
+		return nil
+	}
+
+	// 逐个发送通知
+	for _, admin := range admins {
+		if _, err := s.SendNotification(
+			admin.ID,
+			model.NotifyTypeSystem,
+			level,
+			title,
+			content,
+			0,
+			"system",
+		); err != nil {
+			log.Printf("[Notify] 向管理员 %d 发送系统通知失败: %v", admin.ID, err)
+		}
+	}
+
+	return nil
+}
+
+/**
+ * SendSystemNotificationToUser 发送系统通知给单个用户
+ *
+ * @param userID uint - 用户ID
+ * @param title string - 通知标题
+ * @param content string - 通知内容
+ * @param level string - 通知级别（为空则默认为info）
+ * @return error
+ */
+func (s *NotificationService) SendSystemNotificationToUser(
+	userID uint,
+	title, content, level string,
+) error {
+	if level == "" {
+		level = model.NotifyLevelInfo
+	}
+
+	_, err := s.SendNotification(
+		userID,
+		model.NotifyTypeSystem,
+		level,
+		title,
+		content,
+		0,
+		"system",
+	)
+
+	return err
+}
+
+/**
  * GetUserNotifications 获取用户通知列表
  * 
  * @param userID uint - 用户ID
@@ -238,6 +320,19 @@ func (s *NotificationService) GetUnreadNotifications(userID uint) ([]*model.Noti
  */
 func (s *NotificationService) GetUnreadCount(userID uint) (int64, error) {
 	return s.notiRepo.CountUnreadByUserID(userID)
+}
+
+/**
+ * GetAnnouncements 获取平台公告列表
+ * 
+ * 公告为 Notification 表中 type=announce 且 user_id=0 的记录。
+ * 
+ * @param limit int - 查询数量限制
+ * @param offset int - 偏移量
+ * @return ([]*model.Notification, error)
+ */
+func (s *NotificationService) GetAnnouncements(limit, offset int) ([]*model.Notification, error) {
+	return s.notiRepo.FindAnnouncements(limit, offset)
 }
 
 /**
@@ -274,13 +369,20 @@ func (s *NotificationService) pushToWebSocket(notification *model.Notification) 
 		return
 	}
 	
-	// 检查用户是否在线
+	// 平台公告（user_id=0）走广播逻辑，不检查单个用户在线状态
+	if notification.UserID == 0 {
+		s.hub.SendToUser(0, notification)
+		log.Printf("[Notify] ✅ WebSocket已广播平台公告: %s", notification.Title)
+		return
+	}
+
+	// 检查普通用户是否在线
 	if !s.hub.IsUserOnline(notification.UserID) {
 		log.Printf("[Notify] 用户 %d 不在线，跳过WebSocket推送", notification.UserID)
 		return
 	}
 	
-	// 推送通知
+	// 推送通知给单个用户
 	s.hub.SendToUser(notification.UserID, notification)
 	log.Printf("[Notify] ✅ WebSocket通知已推送到用户 %d: %s", notification.UserID, notification.Title)
 }

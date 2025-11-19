@@ -242,4 +242,73 @@ func RegisterSalesRoutes(rg *gin.RouterGroup, ctx *appctx.AppContext) {
 			"total_points": totalPoints,
 		})
 	})
+
+	// 管理员：销售员列表
+	admin := rg.Group("/admin", middleware.RequireAdmin(ctx))
+	admin.GET("/salespersons", func(c *gin.Context) {
+		// 1. 以 users 表中 role = "sales" 的用户为销售员来源
+		var users []model.User
+		if err := ctx.DB.Where("role = ?", "sales").Order("created_at DESC").Find(&users).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		// 2. 可选：补充 Salesperson 表中的业绩统计（若存在）
+		statsMap := make(map[uint]*model.Salesperson) // key: user_id
+		if len(users) > 0 {
+			var userIDs []uint
+			for _, u := range users {
+				userIDs = append(userIDs, u.ID)
+			}
+			var sps []model.Salesperson
+			if err := ctx.DB.Where("user_id IN ?", userIDs).Find(&sps).Error; err == nil {
+				for i := range sps {
+					sp := sps[i]
+					statsMap[sp.UserID] = &sp
+				}
+			}
+		}
+
+		// 3. 组装返回数据
+		result := make([]gin.H, 0, len(users))
+		for _, u := range users {
+			name := u.RealName
+			if name == "" {
+				name = u.Phone
+			}
+
+			var salesCode string
+			var commissionRate, totalPoints, monthPoints float64
+			var totalCustomers, activeCustomers int
+			if sp, ok := statsMap[u.ID]; ok {
+				salesCode = sp.SalesCode
+				commissionRate = sp.CommissionRate
+				totalPoints = sp.TotalPoints
+				monthPoints = sp.MonthPoints
+				totalCustomers = sp.TotalCustomers
+				activeCustomers = sp.ActiveCustomers
+			}
+
+			result = append(result, gin.H{
+				"id":               u.ID,                 // 使用用户ID作为前端标识
+				"user_id":          u.ID,
+				"name":             name,
+				"phone":            u.Phone,
+				"role":             u.Role,
+				"status":           u.Status,
+				"sales_code":       salesCode,
+				"commission_rate":  commissionRate,
+				"total_points":     totalPoints,
+				"month_points":     monthPoints,
+				"total_customers":  totalCustomers,
+				"active_customers": activeCustomers,
+				"is_active":        u.Status == model.UserStatusActive,
+				"created_at":       u.CreatedAt,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"salespersons": result,
+		})
+	})
 }
