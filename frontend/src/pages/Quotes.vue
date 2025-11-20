@@ -22,8 +22,8 @@
     <div class="status-bar">
       <div class="status-time">{{ currentTime }}</div>
       <div class="status-center">
-        <span class="status-badge" :class="{ connected: isConnected }">
-          {{ isConnected ? '休息中' : '连接断开' }}
+        <span class="status-badge" :class="{ connected: isConnected && isBusinessOpen }">
+          {{ statusText }}
         </span>
       </div>
       <div class="status-actions">
@@ -106,9 +106,11 @@
  * 4. 组件卸载时断开WebSocket
  */
 
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { quoteWS } from '@/utils/quoteWebSocket'
 import { WS_CONFIG } from '@/config/websocket'
+import request from '@/utils/request'
+import { API_ENDPOINTS } from '@/config/api'
 
 // ========== 响应式数据 ==========
 
@@ -137,6 +139,91 @@ const quoteData = ref({})
  * @type {Ref<Object>}
  */
 const prevQuoteData = ref({})
+
+/**
+ * 营业时间配置
+ */
+const tradingStartTime = ref('')
+const tradingEndTime = ref('')
+const tradingDays = ref('') // 例如 "1,2,3,4,5" 表示周一到周五
+const holidayTradingEnabled = ref('1') // '1' 表示节假日可交易
+const holidayClosedDates = ref('') // 例如 "2025-01-01,2025-02-10"
+
+/**
+ * 是否在营业时间内
+ */
+const isBusinessOpen = computed(() => {
+  const now = new Date()
+
+  // 如果未配置营业时间，则默认视为营业中，避免误显示休市
+  if (!tradingStartTime.value || !tradingEndTime.value) {
+    return true
+  }
+
+  // 处理交易日（1-7 -> 周一到周日）
+  if (tradingDays.value) {
+    const day = now.getDay() // 0-6, 周日=0
+    const weekday = day === 0 ? 7 : day
+    const days = String(tradingDays.value)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+    if (!days.includes(String(weekday))) {
+      return false
+    }
+  }
+
+  const toMinutes = (t) => {
+    if (!t) return null
+    const parts = String(t).split(':')
+    const h = parseInt(parts[0] || '0', 10)
+    const m = parseInt(parts[1] || '0', 10)
+    if (Number.isNaN(h) || Number.isNaN(m)) return null
+    return h * 60 + m
+  }
+
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const startMinutes = toMinutes(tradingStartTime.value)
+  const endMinutes = toMinutes(tradingEndTime.value)
+
+  if (startMinutes === null || endMinutes === null) {
+    return true
+  }
+
+  let inSession = false
+  if (endMinutes >= startMinutes) {
+    // 普通时段：同一天内，例如 09:00-18:00
+    inSession = nowMinutes >= startMinutes && nowMinutes <= endMinutes
+  } else {
+    // 跨天时段，例如 21:00-02:00
+    inSession = nowMinutes >= startMinutes || nowMinutes <= endMinutes
+  }
+
+  if (!inSession) return false
+
+  // 节假日休市控制：holiday_trading_enabled != '1' 时，holiday_closed_dates 内的日期视为休市
+  if (holidayTradingEnabled.value !== '1' && holidayClosedDates.value) {
+    const todayStr = now.toISOString().slice(0, 10)
+    const dates = String(holidayClosedDates.value)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    if (dates.includes(todayStr)) {
+      return false
+    }
+  }
+
+  return true
+})
+
+/**
+ * 状态栏显示文案
+ */
+const statusText = computed(() => {
+  if (!isConnected.value) return '连接断开'
+  return isBusinessOpen.value ? '营业中' : '已休市'
+})
 
 // ========== 辅助函数 ==========
 
@@ -291,6 +378,42 @@ const handleQuoteUpdate = (items) => {
   isConnected.value = true
 }
 
+/**
+ * 加载营业时间相关配置
+ */
+const loadBusinessConfig = async () => {
+  try {
+    const data = await request.get(API_ENDPOINTS.CONFIG)
+    if (data && data.configs && data.configs.length > 0) {
+      data.configs.forEach((item) => {
+        const key = item.key || item.Key
+        const value = item.value || item.Value
+        switch (key) {
+          case 'trading_start_time':
+            tradingStartTime.value = value
+            break
+          case 'trading_end_time':
+            tradingEndTime.value = value
+            break
+          case 'trading_days':
+            tradingDays.value = value
+            break
+          case 'holiday_trading_enabled':
+            holidayTradingEnabled.value = value
+            break
+          case 'holiday_closed_dates':
+            holidayClosedDates.value = value
+            break
+          default:
+            break
+        }
+      })
+    }
+  } catch (error) {
+    console.error('加载营业时间配置失败:', error)
+  }
+}
+
 // ========== 生命周期钩子 ==========
 
 /**
@@ -303,6 +426,8 @@ onMounted(() => {
   // 连接WebSocket并注册消息处理器
   quoteWS.connect()
   quoteWS.onMessage(handleQuoteUpdate)
+  // 加载营业时间配置
+  loadBusinessConfig()
   
   // 初始化时间并启动定时器（每秒更新）
   updateTime()

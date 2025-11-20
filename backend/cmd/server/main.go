@@ -69,11 +69,27 @@ func main() {
 	
 	// 配置CORS（跨域资源共享）
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://127.0.0.1:5173"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
+		AllowOrigins:     []string{
+			"http://localhost:5173",
+			"http://localhost:5174",
+			"http://localhost:5175",
+			"http://127.0.0.1:5173",
+			"http://localhost:8091",
+			"http://127.0.0.1:8091",
+			// 服务IP前端访问
+			"http://192.168.10.8",
+			"http://192.168.10.8:8091",
+			"http://192.168.2.10",
+			"http://192.168.2.10:8091",
+			"http://59.36.165.33",
+			"http://59.36.165.33:8091",
+			"http://59.36.165.33:5173",
+		},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept", "X-Requested-With"},
+		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
 		AllowCredentials: true,
+		MaxAge:           12 * 60 * 60, // 12小时
 	}))
 
 	// 公开路由（无需认证）
@@ -131,7 +147,7 @@ func main() {
 	// 启动HTTP服务器
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "8090"
 	}
 
 	// 在独立协程中启动服务器

@@ -188,6 +188,7 @@
                 height="80"
                 fit="cover"
                 :src="verification.id_front_url"
+                @click="previewIdImage('front')"
               />
             </span>
           </div>
@@ -199,6 +200,7 @@
                 height="80"
                 fit="cover"
                 :src="verification.id_back_url"
+                @click="previewIdImage('back')"
               />
             </span>
           </div>
@@ -253,7 +255,7 @@
 
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { showToast, showDialog } from 'vant'
+import { showToast, showDialog, showImagePreview } from 'vant'
 import request from '../../utils/request'
 import { API_ENDPOINTS } from '../../config/api'
 import { formatMoney, formatDateTime } from '../../utils/helpers'
@@ -389,6 +391,32 @@ const loadUsers = async () => {
     loading.value = false
     refreshing.value = false
   }
+}
+
+const previewIdImage = (side) => {
+  if (!verification.value) return
+  const images = []
+  if (verification.value.id_front_url) {
+    images.push(verification.value.id_front_url)
+  }
+  if (verification.value.id_back_url) {
+    images.push(verification.value.id_back_url)
+  }
+  if (!images.length) return
+
+  let startPosition = 0
+  if (
+    side === 'back' &&
+    verification.value.id_front_url &&
+    verification.value.id_back_url
+  ) {
+    startPosition = 1
+  }
+
+  showImagePreview({
+    images,
+    startPosition
+  })
 }
 
 const getVerifyStatusText = (status) => {

@@ -1,6 +1,55 @@
 // API配置
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
-export const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8080'
+// 自动检测当前访问的域名，设置对应的API地址
+function getApiBaseUrl() {
+  // 优先使用环境变量
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL
+  }
+  
+  // 自动检测当前访问的域名
+  const hostname = window.location.hostname
+  const protocol = window.location.protocol
+  
+  // 如果是公网IP或域名，使用对应的后端地址
+  if (hostname === '59.36.165.33') {
+    return `${protocol}//${hostname}:8090`
+  }
+  
+  // 如果是localhost或127.0.0.1，使用本地后端
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:8090'
+  }
+  
+  // 默认使用当前域名，端口改为8090
+  return `${protocol}//${hostname}:8090`
+}
+
+function getWsBaseUrl() {
+  // 优先使用环境变量
+  if (import.meta.env.VITE_WS_BASE_URL) {
+    return import.meta.env.VITE_WS_BASE_URL
+  }
+  
+  // 自动检测当前访问的域名
+  const hostname = window.location.hostname
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  
+  // 如果是公网IP或域名，使用对应的后端地址
+  if (hostname === '59.36.165.33') {
+    return `${protocol}//${hostname}:8090`
+  }
+  
+  // 如果是localhost或127.0.0.1，使用本地后端
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'ws://localhost:8090'
+  }
+  
+  // 默认使用当前域名，端口改为8090
+  return `${protocol}//${hostname}:8090`
+}
+
+export const API_BASE_URL = getApiBaseUrl()
+export const WS_BASE_URL = getWsBaseUrl()
 
 // API端点
 export const API_ENDPOINTS = {

@@ -6,6 +6,8 @@
  * 日期：2025-11
  */
 
+import { WS_BASE_URL } from './api'
+
 /**
  * WebSocket 连接配置
  * @type {Object}
@@ -16,9 +18,8 @@
  */
 export const WS_CONFIG = {
   // 后端WebSocket代理接口（已封装外部数据源）
-  QUOTE_WS_URL: import.meta.env.DEV 
-    ? 'ws://localhost:8080/ws/quote'  // 开发环境
-    : 'wss://your-domain.com/ws/quote', // 生产环境
+  // 使用自动检测的WS_BASE_URL，自动适配当前访问域名
+  QUOTE_WS_URL: `${WS_BASE_URL}/ws/quote`,
   
   // 重连配置
   MAX_RECONNECT_ATTEMPTS: 10,

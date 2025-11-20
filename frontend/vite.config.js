@@ -29,7 +29,7 @@ export default defineConfig({
   
   // 开发服务器配置
   server: {
-    port: 5173,
+    port: 8091,
     host: true
   }
 })
